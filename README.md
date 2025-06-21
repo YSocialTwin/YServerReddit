@@ -1,1 +1,1 @@
-# YRedditServer
+# YServerReddit
