@@ -127,10 +127,11 @@ def __follow_suggestions(rectype, user_id, n_neighbors, leaning_biased):
 
     if rectype == "preferential_attachment":
         # get random nodes ordered by degree
+        # Select only follower_id and count for PostgreSQL compatibility
         followers = (
             (
                 db.session.query(
-                    Follow, func.count(Follow.user_id).label("total")
+                    Follow.follower_id, func.count(Follow.user_id).label("total")
                 ).filter(Follow.action == "follow")
             )
             .group_by(Follow.follower_id)
@@ -138,7 +139,7 @@ def __follow_suggestions(rectype, user_id, n_neighbors, leaning_biased):
         ).limit(n_neighbors)
 
         for follower in followers:
-            res[follower[0].follower_id] = int(follower[1])
+            res[follower.follower_id] = int(follower.total)
 
         # normalize pa to probabilities
         total_degree = sum(res.values())

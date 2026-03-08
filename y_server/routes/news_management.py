@@ -1,4 +1,5 @@
 import json
+import re
 from flask import request
 from y_server import app, db
 from y_server.modals import (
@@ -15,9 +16,49 @@ from y_server.modals import (
     Article_topics,
     Post_topics,
     Post_Sentiment,
+    Images,
 )
 
 from y_server.content_analysis import vader_sentiment, toxicity
+
+
+_PROMPT_SCAFFOLD_PATTERNS = [
+    re.compile(r"\bmemory tier [abc]\b", re.IGNORECASE),
+    re.compile(r"\bmemory context\b", re.IGNORECASE),
+    re.compile(r"\bmemory search brief\b", re.IGNORECASE),
+    re.compile(r"\bi am the handler\b", re.IGNORECASE),
+    re.compile(r"\bwrite a new caption\b", re.IGNORECASE),
+]
+
+
+def _is_prompt_scaffold(text_value):
+    text = str(text_value or "").strip()
+    if not text:
+        return False
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    return any(pattern.search(normalized) for pattern in _PROMPT_SCAFFOLD_PATTERNS)
+
+
+def _sanitize_generated_text(text_value):
+    text = str(text_value or "")
+    if not text.strip():
+        return ""
+    lines = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if _is_prompt_scaffold(line):
+            continue
+        if line.lower().startswith("previous bad attempt:"):
+            continue
+        lines.append(raw_line)
+    cleaned = "\n".join(lines).strip()
+    if cleaned and _is_prompt_scaffold(cleaned):
+        return ""
+    return cleaned
 
 
 @app.route("/news", methods=["POST"])
@@ -29,7 +70,10 @@ def comment_news():
     """
     data = json.loads(request.get_data())
     account_id = data["user_id"]
-    text = data["tweet"].strip('"')
+    raw_text = data["tweet"].strip('"')
+    text = _sanitize_generated_text(raw_text)
+    if raw_text.strip() and not text:
+        return json.dumps({"status": 422, "error": "prompt_scaffold_detected", "field": "tweet"}), 422
     emotions = data["emotions"]
     hastags = data["hashtags"]
     mentions = data["mentions"]
@@ -78,18 +122,61 @@ def comment_news():
         db.session.commit()
     article_id = Articles.query.filter_by(link=link, website_id=website_id).first().id
 
+    # Handle image_url if provided
+    image_url = data.get("image_url")
+    image_id = None
+    if image_url:
+        # Check if image already exists for this article
+        existing_image = Images.query.filter_by(article_id=article_id).first()
+        if existing_image is None:
+            # Also check if image URL already exists (avoid duplicates)
+            if Images.query.filter_by(url=image_url).first() is None:
+                image = Images(url=image_url, article_id=article_id)
+                db.session.add(image)
+                db.session.commit()
+                image_id = image.id
+            else:
+                # Image URL exists, get its ID
+                image_id = Images.query.filter_by(url=image_url).first().id
+        else:
+            image_id = existing_image.id
+    else:
+        # No image_url provided, check if article already has an image
+        existing_image = Images.query.filter_by(article_id=article_id).first()
+        if existing_image:
+            image_id = existing_image.id
+
     # add post only if the text is not empty
     # (this might happen if the method is called to save the article for image processing)
     if len(text) == 0:
         post = None
-
     else:
+        # Idempotency for link shares: prevent accidental double-posting of the same link
+        # by the same user within the same round.
+        if data.get("is_share_link"):
+            existing = Post.query.filter_by(
+                user_id=user.id,
+                round=tid,
+                comment_to=-1,
+                news_id=article_id,
+            ).first()
+            if existing is not None:
+                return json.dumps(
+                    {
+                        "status": 200,
+                        "article_id": article_id,
+                        "post_id": existing.id,
+                        "message": "duplicate_suppressed",
+                    }
+                )
+
         post = Post(
             tweet=text,
             round=tid,
             user_id=user.id,
             comment_to=-1,
             news_id=article_id,
+            image_id=image_id,
         )
 
         db.session.add(post)
@@ -175,7 +262,10 @@ def comment_news():
             db.session.add(post_sentiment)
             db.session.commit()
 
-    return json.dumps({"status": 200, "article_id": article_id})
+    resp = {"status": 200, "article_id": article_id}
+    if post is not None:
+        resp["post_id"] = post.id
+    return json.dumps(resp)
 
 
 @app.route("/get_article_by_title", methods=["POST", "GET"])
@@ -228,6 +318,16 @@ def share():
 
     :return: a json object with the status of the share
     """
+    return (
+        json.dumps(
+            {
+                "status": 403,
+                "message": "Sharing existing posts is disabled for forum experiments.",
+            }
+        ),
+        403,
+    )
+
     data = json.loads(request.get_data())
     account_id = data["user_id"]
     post_id = data["post_id"]

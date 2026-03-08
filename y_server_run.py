@@ -29,7 +29,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    config_file = args.config_file
+    config_file = os.path.abspath(args.config_file)
+    # y_server reads config at import time, so provide the path before importing app.
+    os.environ["YSERVER_CONFIG"] = config_file
     config = json.load(open(config_file, "r"))
 
     start_server(config)
