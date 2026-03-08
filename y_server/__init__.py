@@ -198,7 +198,6 @@ def _ensure_comment_dedupe_schema(app):
                     conn.execute(text("ALTER TABLE post ADD COLUMN dedupe_key VARCHAR(64)"))
                 if "client_action_id" not in existing_cols:
                     conn.execute(text("ALTER TABLE post ADD COLUMN client_action_id VARCHAR(96)"))
-
                 conn.execute(
                     text(
                         """
