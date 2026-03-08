@@ -91,9 +91,15 @@ def _ensure_image_post_schema():
         inspector = inspect(db.engine)
         if "post" in inspector.get_table_names():
             post_columns = {col["name"] for col in inspector.get_columns("post")}
-            if "image_post_id" not in post_columns:
-                with db.engine.begin() as conn:
+            with db.engine.begin() as conn:
+                if "image_post_id" not in post_columns:
                     conn.execute(text("ALTER TABLE post ADD COLUMN image_post_id INTEGER"))
+                if "dedupe_key" not in post_columns:
+                    conn.execute(text("ALTER TABLE post ADD COLUMN dedupe_key VARCHAR(64)"))
+                if "client_action_id" not in post_columns:
+                    conn.execute(
+                        text("ALTER TABLE post ADD COLUMN client_action_id VARCHAR(96)")
+                    )
 
         with db.engine.begin() as conn:
             if db.engine.dialect.name == "postgresql":
