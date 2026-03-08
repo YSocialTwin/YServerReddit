@@ -44,6 +44,7 @@ class Post(db.Model):
     thread_id = db.Column(db.Integer)
     news_id = db.Column(db.String(50), db.ForeignKey("articles.id"), default=None)
     image_id = db.Column(db.Integer(), db.ForeignKey("images.id"), default=None)
+    image_post_id = db.Column(db.Integer(), db.ForeignKey("image_posts.id"), default=None)
     shared_from = db.Column(db.Integer, default=-1)
     reaction_count = db.Column(db.Integer, default=0)
 
@@ -159,6 +160,19 @@ class Images(db.Model):
     url = db.Column(db.String(200), nullable=True)
     description = db.Column(db.String(400), nullable=True)
     article_id = db.Column(db.Integer, db.ForeignKey("articles.id"), nullable=True)
+
+
+class ImagePosts(db.Model):
+    __tablename__ = "image_posts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    url = db.Column(db.String(500), nullable=False)
+    source_url = db.Column(db.String(500), nullable=True)
+    title = db.Column(db.String(300), nullable=True)
+    subreddit = db.Column(db.String(100), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    fetched_on = db.Column(db.String(20), nullable=True)
+    used = db.Column(db.Boolean, default=False)
 
 
 class Article_topics(db.Model):

@@ -34,6 +34,9 @@ def get_user():
     email = data["email"]
 
     user = User_mgmt.query.filter_by(username=username, email=email).first()
+    
+    if user is None:
+        return json.dumps({"error": "User not found"}), 404
 
     return json.dumps(
         {
@@ -60,6 +63,8 @@ def get_user():
             "nationality": user.nationality,
             "toxicity": user.toxicity,
             "is_page": user.is_page,
+            "daily_activity_level": user.daily_activity_level if user.daily_activity_level is not None else 1,
+            "profession": user.profession if hasattr(user, 'profession') else "",
         }
     )
 

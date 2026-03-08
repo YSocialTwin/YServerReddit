@@ -238,14 +238,22 @@ def share():
     tid = int(data["tid"])
 
     user = User_mgmt.query.filter_by(id=account_id).first()
-    post = Post.query.filter_by(id=post_id).first()
+    original_post = Post.query.filter_by(id=post_id).first()
+
+    # Check if user already shared this post (deduplication)
+    existing_share = Post.query.filter_by(
+        user_id=user.id,
+        shared_from=post_id
+    ).first()
+    if existing_share:
+        return json.dumps({"status": 200, "message": "Already shared", "id": existing_share.id})
 
     post = Post(
         tweet=text,
         round=tid,
         user_id=user.id,
         shared_from=post_id,
-        news_id=post.news_id,
+        news_id=original_post.news_id,
     )
 
     db.session.add(post)
