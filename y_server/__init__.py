@@ -108,7 +108,9 @@ def _ensure_image_post_schema():
                             subreddit VARCHAR(100),
                             description TEXT,
                             fetched_on VARCHAR(20),
-                            used BOOLEAN DEFAULT FALSE
+                            used BOOLEAN DEFAULT FALSE,
+                            local_path VARCHAR(500),
+                            high_res_url VARCHAR(500)
                         )
                         """
                     )
@@ -125,11 +127,21 @@ def _ensure_image_post_schema():
                             subreddit VARCHAR(100),
                             description TEXT,
                             fetched_on VARCHAR(20),
-                            used BOOLEAN DEFAULT 0
+                            used BOOLEAN DEFAULT 0,
+                            local_path VARCHAR(500),
+                            high_res_url VARCHAR(500)
                         )
                         """
                     )
                 )
+
+            refreshed_columns = {
+                col["name"] for col in inspect(db.engine).get_columns("image_posts")
+            }
+            if "local_path" not in refreshed_columns:
+                conn.execute(text("ALTER TABLE image_posts ADD COLUMN local_path VARCHAR(500)"))
+            if "high_res_url" not in refreshed_columns:
+                conn.execute(text("ALTER TABLE image_posts ADD COLUMN high_res_url VARCHAR(500)"))
 
 
 _ensure_image_post_schema()
