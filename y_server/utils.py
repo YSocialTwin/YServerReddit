@@ -21,8 +21,10 @@ def get_follows(uid):
     # res = Follow_status.query.filter_by(user_id=uid).all()
 
     # get the followers of the user with the given uid
+    # Select only follower_id for PostgreSQL compatibility
     res = (
-        Follow.query.filter(Follow.user_id == uid, Follow.follower_id != uid)
+        db.session.query(Follow.follower_id)
+        .filter(Follow.user_id == uid, Follow.follower_id != uid)
         .group_by(Follow.follower_id)
         .having(func.count().op("%")(2) == 1)
         .all()
@@ -58,7 +60,7 @@ def fetch_common_interest_posts(
         .filter(
             Post.round >= visibility,
             Post.user_id != uid,
-            Post.news_id != -1 if articles else True,
+            Post.news_id.isnot(None) if articles else True,
         )
         .group_by(Post.id)
         .order_by(desc("match_count"))
@@ -255,7 +257,7 @@ def get_posts_by_author(
     posts = Post.query.filter(
         Post.user_id.in_(user_ids),
         Post.round >= visibility,
-        Post.news_id != -1 if articles else True,
+        Post.news_id.isnot(None) if articles else True,
     ).limit(limit)
 
     return posts
@@ -288,7 +290,7 @@ def get_posts_by_reactions(
             Reactions.user_id.in_(user_ids),
             Reactions.type.in_(reactions_type),
             Post.round >= visibility,
-            Post.news_id != -1 if articles else True,
+            Post.news_id.isnot(None) if articles else True,
         )
         .group_by(Post.id)
         .order_by(desc("total"), desc(Post.id))
@@ -301,7 +303,7 @@ def get_posts_by_reactions(
             db.session.query(Post)
             .filter(
                 Post.round >= visibility,
-                Post.news_id != -1 if articles else True,
+                Post.news_id.isnot(None) if articles else True,
             )
             .group_by(Post.id)
             .limit(limit)
@@ -321,21 +323,33 @@ def __get_posts_by_comments(visibility, articles, limit, user_ids):
     :return: the posts query result
     """
     # get posts with the most comments
-    posts = (
-        db.session.query(Post, func.count(Post.thread_id).label("comment_count"))
+    # Use subquery for PostgreSQL compatibility - get comment counts per thread first
+    comment_counts = (
+        db.session.query(
+            Post.thread_id,
+            func.count(Post.thread_id).label("comment_count"),
+            func.max(Post.id).label("max_post_id")
+        )
         .filter(
             Post.round >= visibility,
             Post.comment_to != -1,
-            Post.news_id != -1 if articles else True,
+            Post.news_id.isnot(None) if articles else True,
         )
         .group_by(Post.thread_id)
-        .order_by(desc("comment_count"), desc(Post.id))
-        .limit(limit)
-        .all()
+        .subquery()
+    )
+
+    # Join back to get full Post objects
+    query = (
+        db.session.query(Post, comment_counts.c.comment_count)
+        .join(comment_counts, Post.id == comment_counts.c.max_post_id)
+        .order_by(desc(comment_counts.c.comment_count), desc(Post.id))
     )
 
     if user_ids:
         # filter posts by specified users
-        posts = posts.filter(Post.user_id.in_(user_ids))
+        query = query.filter(Post.user_id.in_(user_ids))
+
+    posts = query.limit(limit).all()
 
     return posts
