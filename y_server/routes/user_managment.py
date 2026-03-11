@@ -236,9 +236,9 @@ def user_exists():
 )
 def get_user_from_post():
     """
-    Get the author of a post.
+    Get the author (username) of a post.
 
-    :return: a json object with the author
+    :return: a json string with the author's username
     """
     data = json.loads(request.get_data())
     post_id = data["post_id"]
@@ -247,7 +247,41 @@ def get_user_from_post():
     if post is None:
         return json.dumps({"error": "Post not found", "status": 404})
 
-    return json.dumps(post.user_id)
+    # Return username instead of user_id so agents can address each other by name
+    user = User_mgmt.query.filter_by(id=post.user_id).first()
+    if user is None:
+        return json.dumps({"error": "User not found", "status": 404})
+
+    return json.dumps(user.username)
+
+
+@app.route(
+    "/get_username_from_post",
+    methods=["POST", "GET"],
+)
+def get_username_from_post():
+    """
+    Get the author (user id + username) of a post/comment.
+
+    :return: a json object with status, user_id, username
+    """
+    data = json.loads(request.get_data())
+    post_id = data.get("post_id")
+
+    try:
+        post_id = int(post_id)
+    except (TypeError, ValueError):
+        return json.dumps({"error": "Invalid post_id", "status": 400})
+
+    post = Post.query.filter_by(id=post_id).first()
+    if post is None:
+        return json.dumps({"error": "Post not found", "status": 404})
+
+    user = User_mgmt.query.filter_by(id=post.user_id).first()
+    if user is None:
+        return json.dumps({"error": "User not found", "status": 404})
+
+    return json.dumps({"status": 200, "user_id": int(user.id), "username": user.username})
 
 
 @app.route("/timeline", methods=["GET"])
@@ -366,7 +400,7 @@ def get_user_interests():
             User_interest.round_id >= base_rounds,
             User_interest.round_id <= round_id,
         )
-        .group_by(User_interest.interest_id)
+        .group_by(User_interest.interest_id, Interests.interest)
         .order_by(db.desc(db.func.count(User_interest.interest_id)))
         .limit(n_interests)
         .all()
