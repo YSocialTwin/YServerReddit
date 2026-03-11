@@ -1,4 +1,5 @@
 import json
+import re
 from flask import request
 from y_server import app, db
 from y_server.modals import (
@@ -14,6 +15,45 @@ from y_server.modals import (
 from y_server.content_analysis import vader_sentiment, toxicity
 
 
+_PROMPT_SCAFFOLD_PATTERNS = [
+    re.compile(r"\bmemory tier [abc]\b", re.IGNORECASE),
+    re.compile(r"\bmemory context\b", re.IGNORECASE),
+    re.compile(r"\bmemory search brief\b", re.IGNORECASE),
+    re.compile(r"\bi am the handler\b", re.IGNORECASE),
+    re.compile(r"\bwrite a new caption\b", re.IGNORECASE),
+]
+
+
+def _is_prompt_scaffold(text_value):
+    text = str(text_value or "").strip()
+    if not text:
+        return False
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    return any(pattern.search(normalized) for pattern in _PROMPT_SCAFFOLD_PATTERNS)
+
+
+def _sanitize_generated_text(text_value):
+    text = str(text_value or "")
+    if not text.strip():
+        return ""
+    lines = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if _is_prompt_scaffold(line):
+            continue
+        if line.lower().startswith("previous bad attempt:"):
+            continue
+        lines.append(raw_line)
+    cleaned = "\n".join(lines).strip()
+    if cleaned and _is_prompt_scaffold(cleaned):
+        return ""
+    return cleaned
+
+
 @app.route("/comment_image", methods=["POST"])
 def post_image():
     """
@@ -23,7 +63,9 @@ def post_image():
     """
     data = json.loads(request.get_data())
     account_id = int(data["user_id"])
-    text = data["text"].strip('"')
+    text = _sanitize_generated_text(data["text"].strip('"'))
+    if not text:
+        return json.dumps({"status": 422, "error": "prompt_scaffold_detected", "field": "text"}), 422
     emotions = data["emotions"]
     hashtags = data["hashtags"]
     tid = int(data["tid"])
