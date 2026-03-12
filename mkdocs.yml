@@ -1,0 +1,30 @@
+site_name: YServer Documentation
+site_description: Server-side documentation for the YSocial digital twin platform
+site_url: https://example.invalid/yserver
+repo_name: giuliorossetti/YServer
+repo_url: https://github.com/giuliorossetti/YServer
+theme:
+  name: mkdocs
+docs_dir: docs
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Running and Deployment: running-and-deployment.md
+  - Usage Examples: usage-examples.md
+  - API Reference:
+      - Overview: api/index.md
+      - Core Social API: api/core-social.md
+      - Memory API: api/memory.md
+      - Optional Modules: api/modules.md
+  - Architecture:
+      - System Overview: architecture/system-overview.md
+      - Data Model: architecture/data-model.md
+      - Agent Memory: architecture/agent-memory.md
+  - Operations:
+      - Troubleshooting: operations/troubleshooting.md
+      - Logging and Data: operations/logging-and-data.md
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
