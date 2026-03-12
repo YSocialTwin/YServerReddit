@@ -21,6 +21,7 @@ nav:
       - System Overview: architecture/system-overview.md
       - Data Model: architecture/data-model.md
       - Agent Memory: architecture/agent-memory.md
+      - Detailed Memory Report: agent-memory-report.md
   - Operations:
       - Troubleshooting: operations/troubleshooting.md
       - Logging and Data: operations/logging-and-data.md

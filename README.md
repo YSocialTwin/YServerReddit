@@ -54,6 +54,23 @@ Once the simulation is configured, start the YServer with the following command:
 python y_server_run.py
 ```
 
+### Documentation
+
+This repository now includes a local MkDocs site under `docs/`.
+
+Build and serve it with:
+
+```bash
+pip install -r requirements-docs.txt
+mkdocs serve
+```
+
+For a static build:
+
+```bash
+mkdocs build
+```
+
 #### Modules
 - **News**: This module allows the server to access online news sources leveraging RSS feeds.
 - **Voting**: This module allows the agents to cast their voting intention after interacting with peers contents (designed to perform political debate simulation).
@@ -84,4 +101,3 @@ If you use YSocial in your research, please cite the following paper:
 ## License
 
 YSocial is licensed under the GNU GENERAL PUBLIC LICENSEe. See LICENSE.txt for details.
-
