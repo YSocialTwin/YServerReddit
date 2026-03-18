@@ -46,6 +46,33 @@ def log_error(message):
     print(message, file=sys.stderr, flush=True)
 
 
+def _load_current_server_config(log_dir):
+    """Best-effort config_server.json load for the currently bound experiment."""
+    if not log_dir:
+        return {}
+    try:
+        config_path = os.path.join(log_dir, "config_server.json")
+        if not os.path.exists(config_path):
+            return {}
+        with open(config_path, "r") as handle:
+            return json.load(handle)
+    except Exception as exc:
+        log_error(f"memory embedding config load failed: {exc}")
+        return {}
+
+
+def _normalize_experiment_dir_path(log_dir):
+    """Normalize an experiment directory path coming from /change_db payloads."""
+    log_dir = str(log_dir or "").strip()
+    if not log_dir:
+        return ""
+    if os.path.isabs(log_dir):
+        return log_dir
+    if os.name != "nt":
+        return os.path.join(os.sep, log_dir.lstrip(os.sep))
+    return log_dir
+
+
 def rebind_db(new_uri):
     """Rebind the database to a new URI without calling init_app."""
     from flask import current_app
@@ -120,6 +147,8 @@ def change_db():
             rebind_db(sqlite_uri)
             log_dir = uri.split("database_server.db")[0]
 
+        log_dir = _normalize_experiment_dir_path(log_dir)
+
         # Ensure dedupe columns/indexes exist on the currently bound database.
         _ensure_comment_dedupe_schema(app)
 
@@ -156,6 +185,15 @@ def change_db():
         app.logger.setLevel(logging.INFO)
         logger.propagate = False
         fileHandler.flush()
+
+        try:
+            from y_server.routes.content_management import (
+                configure_memory_embedding_from_config,
+            )
+
+            configure_memory_embedding_from_config(_load_current_server_config(log_dir))
+        except Exception as exc:
+            log_error(f"memory embedding configuration failed: {exc}")
 
         app.logger.info(f"Database configuration successful. URI: {uri}, Log: {log_path}")
         return {"status": 200}

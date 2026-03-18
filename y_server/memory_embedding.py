@@ -11,13 +11,72 @@ class MemoryEmbeddingService:
     callers receive None embeddings and can use lexical fallback retrieval.
     """
 
-    def __init__(self, model_name: str = "embeddinggemma", ollama_host: str = "http://127.0.0.1:11434"):
-        self.model_name = model_name
-        self.ollama_host = ollama_host
+    def __init__(self, model_name: str | None = None, ollama_host: str | None = None):
+        self.model_name = str(model_name or "").strip()
+        self.requested_model_name = self.model_name
+        self.ollama_host = str(ollama_host or "").strip()
         self._client = None
         self._available = None
         self._lock = threading.Lock()
         self._last_error = None
+        if not self.model_name or not self.ollama_host:
+            self._available = False
+            self._last_error = "embedding service not configured"
+
+    def _installed_model_names(self, client):
+        try:
+            listing = client.list()
+        except Exception:
+            return []
+
+        models = getattr(listing, "models", None)
+        if models is None and isinstance(listing, dict):
+            models = listing.get("models")
+        if not isinstance(models, list):
+            return []
+
+        names = []
+        for model in models:
+            name = getattr(model, "model", None)
+            if name is None and isinstance(model, dict):
+                name = model.get("model") or model.get("name")
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+        return names
+
+    def _resolve_model_name(self, client):
+        installed = self._installed_model_names(client)
+        if not installed:
+            return self.model_name
+
+        lowered = {name.lower(): name for name in installed}
+        candidates = []
+        for candidate in [
+            self.requested_model_name,
+            self.model_name,
+            "embeddinggemma",
+            "snowflake-arctic-embed:110m",
+            "snowflake-arctic-embed",
+            "nomic-embed-text",
+            "mxbai-embed-large",
+        ]:
+            if isinstance(candidate, str) and candidate.strip():
+                candidates.append(candidate.strip())
+
+        for candidate in candidates:
+            exact = lowered.get(candidate.lower())
+            if exact:
+                return exact
+            prefix = f"{candidate.lower()}:"
+            for lowered_name, original_name in lowered.items():
+                if lowered_name.startswith(prefix):
+                    return original_name
+
+        for name in installed:
+            lowered_name = name.lower()
+            if "embed" in lowered_name:
+                return name
+        return self.model_name
 
     def _ensure_client(self):
         if self._available is False:
@@ -39,6 +98,9 @@ class MemoryEmbeddingService:
 
             try:
                 client = OllamaClient(host=self.ollama_host)
+                resolved_model = self._resolve_model_name(client)
+                if resolved_model != self.model_name:
+                    self.model_name = resolved_model
                 # Verify connectivity with a test embed call
                 client.embed(model=self.model_name, input="test")
                 self._client = client

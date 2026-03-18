@@ -51,7 +51,7 @@ from y_server.memory_embedding import (
 _MEMORY_SCHEMA_READY = False
 _MEMORY_SCHEMA_EVOLUTION_READY = False
 _MEMORY_INDEXER_STARTED = False
-_MEMORY_EMBEDDING = MemoryEmbeddingService("embeddinggemma")
+_MEMORY_EMBEDDING = MemoryEmbeddingService()
 _MEMORY_QUERY_ALIAS_MAP = {
     "dnd": ["d and d", "d&d", "dungeons and dragons"],
     "d&d": ["dnd", "d and d", "dungeons and dragons"],
@@ -64,6 +64,63 @@ _HOT_LONGTAIL_VOTE_THRESH1 = 3
 _HOT_LONGTAIL_VOTE_THRESH2 = 8
 _HOT_LONGTAIL_J1 = 0.45
 _HOT_LONGTAIL_J2 = 0.20
+
+
+def _normalize_embedding_host(value):
+    host = str(value or "").strip()
+    if not host:
+        return ""
+    if not host.startswith("http://") and not host.startswith("https://"):
+        host = f"http://{host}"
+    host = host.rstrip("/")
+    if host.endswith("/v1"):
+        host = host[:-3].rstrip("/")
+    return host
+
+
+def configure_memory_embedding(service=None, host=None, model=None):
+    """Reconfigure the forum memory embedding backend for the currently bound experiment."""
+    global _MEMORY_EMBEDDING
+
+    normalized_service = str(service or "").strip().lower()
+    normalized_host = _normalize_embedding_host(host)
+    normalized_model = str(model or "").strip()
+
+    if normalized_service == "ollama" and normalized_host and normalized_model:
+        _MEMORY_EMBEDDING = MemoryEmbeddingService(
+            model_name=normalized_model,
+            ollama_host=normalized_host,
+        )
+    else:
+        _MEMORY_EMBEDDING = MemoryEmbeddingService()
+
+    try:
+        app.logger.info(
+            "memory_embedding_configured",
+            extra={
+                "service": normalized_service or "disabled",
+                "host": normalized_host,
+                "model": normalized_model,
+                "available": bool(_MEMORY_EMBEDDING.available),
+                "error": _MEMORY_EMBEDDING.last_error,
+            },
+        )
+    except Exception:
+        pass
+
+
+def configure_memory_embedding_from_config(config_data):
+    """Apply memory embedding settings from a server config payload."""
+    settings = {}
+    if isinstance(config_data, dict):
+        settings = config_data.get("memory_embeddings") or {}
+    if not isinstance(settings, dict):
+        settings = {}
+    configure_memory_embedding(
+        service=settings.get("service"),
+        host=settings.get("host"),
+        model=settings.get("model"),
+    )
 
 
 def _hot_stable_uniform_0_1(*parts: object, salt: str = "forum-hot-longtail-v2") -> float:
