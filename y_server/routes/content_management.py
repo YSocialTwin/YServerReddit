@@ -2953,7 +2953,13 @@ def get_post_topics_name():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post_topics = Post_topics.query.filter_by(post_id=post_id).all()
+    post = Post.query.filter_by(id=post_id).first()
+    topic_post_id = post_id
+    if post is not None:
+        direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
+        if not direct_topics and post.thread_id is not None:
+            topic_post_id = post.thread_id
+    post_topics = Post_topics.query.filter_by(post_id=topic_post_id).all()
 
     res = []
     for topic in post_topics:
@@ -3091,7 +3097,14 @@ def get_post_topics():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post_topics = Post_topics.query.filter_by(post_id=post_id)
+    post = Post.query.filter_by(id=post_id).first()
+    topic_post_id = post_id
+    if post is not None:
+        direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
+        if not direct_topics and post.thread_id is not None:
+            topic_post_id = post.thread_id
+
+    post_topics = Post_topics.query.filter_by(post_id=topic_post_id)
 
     res = []
     for topic in post_topics:
