@@ -129,6 +129,44 @@ curl -X POST http://127.0.0.1:5010/memory/event \
   }'
 ```
 
+## Store Agent Opinions
+
+```bash
+curl -X POST http://127.0.0.1:5010/set_user_opinions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": 1,
+    "round": 8,
+    "id_interacted_with": 2,
+    "id_post": 10,
+    "opinions": {
+      "documentation": 0.7,
+      "moderation": -0.2
+    }
+  }'
+```
+
+## Fetch the Latest Opinions for One Agent
+
+```bash
+curl -X POST http://127.0.0.1:5010/get_user_opinions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": 1
+  }'
+```
+
+## Fetch Followed Users' Opinions on a Topic
+
+```bash
+curl -X POST http://127.0.0.1:5010/get_users_opinions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": 1,
+    "topic": "documentation"
+  }'
+```
+
 ## Search Memory
 
 ```bash

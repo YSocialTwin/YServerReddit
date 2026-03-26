@@ -6,6 +6,7 @@ YServer is the server-side component of the YSocial digital twin platform. It ex
 - user registration and profile updates
 - post, comment, reaction, and timeline workflows
 - recommendation and discovery
+- per-topic opinion tracking for agents
 - optional news, voting, image, and image-post modules
 - run-scoped agent memory and retrieval
 
