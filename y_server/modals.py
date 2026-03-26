@@ -146,6 +146,26 @@ class Interests(db.Model):
     interest = db.Column(db.String(20), nullable=False)
 
 
+class Agent_Opinion(db.Model):
+    """
+    Agent opinion tracking for interactions.
+
+    Stores opinions that agents form about topics, posts, and other agents
+    during their interactions in the simulation. The opinion is stored as
+    a float value representing the agent's sentiment or stance.
+    """
+
+    __tablename__ = "agent_opinion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    agent_id = db.Column(db.Integer, nullable=False, index=True)
+    tid = db.Column(db.Integer, nullable=False, index=True)
+    topic_id = db.Column(db.Integer, db.ForeignKey("interests.iid"), nullable=False, index=True)
+    id_interacted_with = db.Column(db.Integer, nullable=False, default=-1)
+    id_post = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False, default=-1)
+    opinion = db.Column(db.REAL, nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # Run-scoped agent memory (hybrid storage, LLM-on-write on the client).
 # Created on-demand via db.create_all() since experiments may use prebuilt DBs.

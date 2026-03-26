@@ -6,6 +6,7 @@ import traceback
 from flask import request
 from logging.handlers import RotatingFileHandler
 from pythonjsonlogger import jsonlogger
+from sqlalchemy import inspect
 from sqlalchemy.pool import NullPool
 
 from y_server import app, db, _ensure_comment_dedupe_schema
@@ -26,6 +27,7 @@ from y_server.modals import (
     Interests,
     Post_topics,
     User_interest,
+    Agent_Opinion,
     Images,
     Article_topics,
 )
@@ -240,5 +242,11 @@ def reset_experiment():
     db.session.query(Post_topics).delete()
     db.session.query(Images).delete()
     db.session.query(Article_topics).delete()
+    try:
+        table_names = set(inspect(db.engine).get_table_names())
+    except Exception:
+        table_names = set()
+    if "agent_opinion" in table_names:
+        db.session.query(Agent_Opinion).delete()
     db.session.commit()
     return {"status": 200}
