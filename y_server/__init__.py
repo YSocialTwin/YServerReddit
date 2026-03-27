@@ -318,3 +318,10 @@ _ensure_image_post_schema()
 _ensure_comment_dedupe_schema(app)
 
 from y_server.routes import *
+
+try:
+    from y_server.routes.content_management import configure_memory_embedding_from_config
+
+    configure_memory_embedding_from_config(config)
+except Exception:
+    pass
