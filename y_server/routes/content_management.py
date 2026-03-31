@@ -1500,6 +1500,8 @@ def add_comment():
     # get topics associated to post.id
     post_topics = Post_topics.query.filter_by(post_id=post.thread_id).all()
     for topic in post_topics:
+        db.session.add(Post_topics(post_id=new_post.id, topic_id=topic.topic_id))
+        db.session.commit()
         if sentiment is not None:
             post_sentiment = Post_Sentiment(
                 post_id=new_post.id,

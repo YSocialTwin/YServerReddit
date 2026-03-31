@@ -34,6 +34,7 @@ def create_image_post():
     emotions = data.get("emotions", [])
     hashtags = data.get("hashtags", [])
     mentions = data.get("mentions", [])
+    topics = list(data.get("topics") or [])
     tid = int(data["tid"])
 
     if len(text) < 3:
@@ -57,6 +58,11 @@ def create_image_post():
         if image_description and not image_post.description:
             image_post.description = image_description
         db.session.commit()
+
+    if not topics:
+        subreddit = str(getattr(image_post, "subreddit", "") or "").strip()
+        if subreddit:
+            topics = [subreddit]
 
     post = Post(
         tweet=text,
@@ -100,9 +106,9 @@ def create_image_post():
             db.session.add(Mentions(user_id=us.id, post_id=post.id, round=tid))
             db.session.commit()
 
-    if "topics" in data:
+    if topics:
         sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
-        for topic in data["topics"]:
+        for topic in topics:
             if len(topic) < 1:
                 continue
             interest = Interests.query.filter_by(interest=topic).first()
