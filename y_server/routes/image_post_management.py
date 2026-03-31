@@ -3,7 +3,11 @@ import json
 from flask import request
 
 from y_server import app, db
-from y_server.content_analysis import vader_sentiment
+from y_server.content_analysis import (
+    should_annotate_emotions,
+    should_annotate_sentiment,
+    vader_sentiment,
+)
 from y_server.modals import (
     Emotions,
     Hashtags,
@@ -67,13 +71,14 @@ def create_image_post():
     post.thread_id = post.id
     db.session.commit()
 
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            db.session.add(Post_emotions(post_id=post.id, emotion_id=em.id))
-            db.session.commit()
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                db.session.add(Post_emotions(post_id=post.id, emotion_id=em.id))
+                db.session.commit()
 
     for tag in hashtags:
         if len(tag) < 4:
@@ -96,7 +101,7 @@ def create_image_post():
             db.session.commit()
 
     if "topics" in data:
-        sentiment = vader_sentiment(text)
+        sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
         for topic in data["topics"]:
             if len(topic) < 1:
                 continue
@@ -108,20 +113,21 @@ def create_image_post():
                 interest = Interests.query.filter_by(interest=topic).first()
 
             db.session.add(Post_topics(post_id=post.id, topic_id=interest.iid))
-            db.session.add(
-                Post_Sentiment(
-                    post_id=post.id,
-                    user_id=user.id,
-                    pos=sentiment["pos"],
-                    neg=sentiment["neg"],
-                    neu=sentiment["neu"],
-                    compound=sentiment["compound"],
-                    round=tid,
-                    is_post=1,
-                    topic_id=interest.iid,
+            if sentiment is not None:
+                db.session.add(
+                    Post_Sentiment(
+                        post_id=post.id,
+                        user_id=user.id,
+                        pos=sentiment["pos"],
+                        neg=sentiment["neg"],
+                        neu=sentiment["neu"],
+                        compound=sentiment["compound"],
+                        round=tid,
+                        is_post=1,
+                        topic_id=interest.iid,
+                    )
                 )
-            )
-            db.session.commit()
+                db.session.commit()
 
     return json.dumps(
         {"status": 200, "post_id": post.id, "image_post_id": image_post.id}

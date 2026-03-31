@@ -40,7 +40,13 @@ from y_server.modals import (
     MemoryCommunityDigest,
     MemoryItem,
 )
-from y_server.content_analysis import vader_sentiment, toxicity
+from y_server.content_analysis import (
+    should_annotate_emotions,
+    should_annotate_sentiment,
+    should_annotate_toxicity,
+    vader_sentiment,
+    toxicity,
+)
 from y_server.memory_embedding import (
     MemoryEmbeddingService,
     cosine_similarity,
@@ -1285,9 +1291,9 @@ def add_post():
     db.session.add(post)
     db.session.commit()
 
-    sentiment = vader_sentiment(text)
-
-    toxicity(text, app.config["perspective_api"], post.id, db)
+    if should_annotate_toxicity(app.config):
+        toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)
+    sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     post.thread_id = post.id
     db.session.commit()
@@ -1297,29 +1303,31 @@ def add_post():
         db.session.add(tp)
         db.session.commit()
 
-        post_sentiment = Post_Sentiment(
-            post_id=post.id,
-            user_id=user.id,
-            pos=sentiment["pos"],
-            neg=sentiment["neg"],
-            neu=sentiment["neu"],
-            compound=sentiment["compound"],
-            round=tid,
-            is_post=1,
-            topic_id=topic_id,
-        )
-        db.session.add(post_sentiment)
-        db.session.commit()
-
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
-
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
-            db.session.add(post_emotion)
+        if sentiment is not None:
+            post_sentiment = Post_Sentiment(
+                post_id=post.id,
+                user_id=user.id,
+                pos=sentiment["pos"],
+                neg=sentiment["neg"],
+                neu=sentiment["neu"],
+                compound=sentiment["compound"],
+                round=tid,
+                is_post=1,
+                topic_id=topic_id,
+            )
+            db.session.add(post_sentiment)
             db.session.commit()
+
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
+
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
+                db.session.add(post_emotion)
+                db.session.commit()
 
     for tag in hastags:
         if len(tag) < 4:
@@ -1485,37 +1493,39 @@ def add_comment():
     else:
         sentiment_parent = ""
 
-    sentiment = vader_sentiment(text)
-
-    toxicity(text, app.config["perspective_api"], new_post.id, db)
+    if should_annotate_toxicity(app.config):
+        toxicity(text, app.config.get("perspective_api"), new_post.id, db, enabled=True)
+    sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     # get topics associated to post.id
     post_topics = Post_topics.query.filter_by(post_id=post.thread_id).all()
     for topic in post_topics:
-        post_sentiment = Post_Sentiment(
-            post_id=new_post.id,
-            user_id=user.id,
-            pos=sentiment["pos"],
-            neg=sentiment["neg"],
-            neu=sentiment["neu"],
-            compound=sentiment["compound"],
-            sentiment_parent=sentiment_parent,
-            round=tid,
-            is_comment=1,
-            topic_id=topic.topic_id,
-        )
-        db.session.add(post_sentiment)
-        db.session.commit()
-
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
-
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            post_emotion = Post_emotions(post_id=new_post.id, emotion_id=em.id)
-            db.session.add(post_emotion)
+        if sentiment is not None:
+            post_sentiment = Post_Sentiment(
+                post_id=new_post.id,
+                user_id=user.id,
+                pos=sentiment["pos"],
+                neg=sentiment["neg"],
+                neu=sentiment["neu"],
+                compound=sentiment["compound"],
+                sentiment_parent=sentiment_parent,
+                round=tid,
+                is_comment=1,
+                topic_id=topic.topic_id,
+            )
+            db.session.add(post_sentiment)
             db.session.commit()
+
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
+
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                post_emotion = Post_emotions(post_id=new_post.id, emotion_id=em.id)
+                db.session.add(post_emotion)
+                db.session.commit()
 
     for tag in hastags:
         if len(tag) < 1:

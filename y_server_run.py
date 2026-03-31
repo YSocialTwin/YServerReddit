@@ -13,6 +13,9 @@ def start_server(config):
 
     debug = False
     app.config["perspective_api"] = config["perspective_api"]
+    app.config["toxicity_annotation"] = config.get("toxicity_annotation", False)
+    app.config["sentiment_annotation"] = config.get("sentiment_annotation", False)
+    app.config["emotion_annotation"] = config.get("emotion_annotation", False)
     app.run(debug=debug, port=int(config["port"]), host=config["host"])
 
 

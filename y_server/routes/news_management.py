@@ -19,7 +19,13 @@ from y_server.modals import (
     Images,
 )
 
-from y_server.content_analysis import vader_sentiment, toxicity
+from y_server.content_analysis import (
+    should_annotate_emotions,
+    should_annotate_sentiment,
+    should_annotate_toxicity,
+    vader_sentiment,
+    toxicity,
+)
 
 
 _PROMPT_SCAFFOLD_PATTERNS = [
@@ -185,15 +191,16 @@ def comment_news():
         post.thread_id = post.id
         db.session.commit()
 
-        for emotion in emotions:
-            if len(emotion) < 1:
-                continue
+        if should_annotate_emotions(app.config):
+            for emotion in emotions:
+                if len(emotion) < 1:
+                    continue
 
-            em = Emotions.query.filter_by(emotion=emotion).first()
-            if em is not None:
-                post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
-                db.session.add(post_emotion)
-                db.session.commit()
+                em = Emotions.query.filter_by(emotion=emotion).first()
+                if em is not None:
+                    post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
+                    db.session.add(post_emotion)
+                    db.session.commit()
 
         for tag in hastags:
             if len(tag) < 4:
@@ -221,10 +228,9 @@ def comment_news():
                 db.session.commit()
 
     if post is not None and "topics" in data:
-        # compute sentiment
-        sentiment = vader_sentiment(text)
-
-        toxicity(text, app.config["perspective_api"], post.id, db)
+        if should_annotate_toxicity(app.config):
+            toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)
+        sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
         for topic in data["topics"]:
             if len(topic) < 1:
@@ -248,19 +254,20 @@ def comment_news():
             pt = Post_topics(post_id=post.id, topic_id=interests.iid)
             db.session.add(pt)
 
-            post_sentiment = Post_Sentiment(
-                post_id=post.id,
-                user_id=user.id,
-                pos=sentiment["pos"],
-                neg=sentiment["neg"],
-                neu=sentiment["neu"],
-                compound=sentiment["compound"],
-                round=tid,
-                is_post=1,
-                topic_id=interests.iid,
-            )
-            db.session.add(post_sentiment)
-            db.session.commit()
+            if sentiment is not None:
+                post_sentiment = Post_Sentiment(
+                    post_id=post.id,
+                    user_id=user.id,
+                    pos=sentiment["pos"],
+                    neg=sentiment["neg"],
+                    neu=sentiment["neu"],
+                    compound=sentiment["compound"],
+                    round=tid,
+                    is_post=1,
+                    topic_id=interests.iid,
+                )
+                db.session.add(post_sentiment)
+                db.session.commit()
 
     resp = {"status": 200, "article_id": article_id}
     if post is not None:
@@ -362,9 +369,9 @@ def share():
     post.thread_id = post.id
     db.session.commit()
 
-    sentiment = vader_sentiment(text)
-
-    toxicity(text, app.config["perspective_api"], post.id, db)
+    if should_annotate_toxicity(app.config):
+        toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)
+    sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     topics = Post_topics.query.filter_by(post_id=post_id).all()
 
@@ -382,30 +389,32 @@ def share():
         sentiment_parent = ""
 
     for topic in topics:
-        post_sentiment = Post_Sentiment(
-            post_id=post.id,
-            user_id=user.id,
-            pos=sentiment["pos"],
-            neg=sentiment["neg"],
-            neu=sentiment["neu"],
-            compound=sentiment["compound"],
-            sentiment_parent=sentiment_parent,
-            round=tid,
-            is_post=1,
-            topic_id=topic.topic_id,
-        )
-        db.session.add(post_sentiment)
-        db.session.commit()
-
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
-
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
-            db.session.add(post_emotion)
+        if sentiment is not None:
+            post_sentiment = Post_Sentiment(
+                post_id=post.id,
+                user_id=user.id,
+                pos=sentiment["pos"],
+                neg=sentiment["neg"],
+                neu=sentiment["neu"],
+                compound=sentiment["compound"],
+                sentiment_parent=sentiment_parent,
+                round=tid,
+                is_post=1,
+                topic_id=topic.topic_id,
+            )
+            db.session.add(post_sentiment)
             db.session.commit()
+
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
+
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
+                db.session.add(post_emotion)
+                db.session.commit()
 
     for tag in hastags:
         if len(tag) < 1:
