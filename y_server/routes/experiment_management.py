@@ -20,6 +20,7 @@ from y_server.modals import (
     Mentions,
     Post_emotions,
     Rounds,
+    SimulationClient,
     Recommendations,
     Websites,
     Articles,
@@ -224,6 +225,7 @@ def reset_experiment():
 
     :return: the status of the reset
     """
+    SimulationClient.__table__.create(bind=db.engine, checkfirst=True)
     db.session.query(User_mgmt).delete()
     db.session.query(Post).delete()
     db.session.query(Reactions).delete()
@@ -233,6 +235,7 @@ def reset_experiment():
     db.session.query(Post_emotions).delete()
     db.session.query(Mentions).delete()
     db.session.query(Rounds).delete()
+    db.session.query(SimulationClient).delete()
     db.session.query(Recommendations).delete()
     db.session.query(Websites).delete()
     db.session.query(Articles).delete()

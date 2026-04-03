@@ -13,6 +13,7 @@ def start_server(config):
 
     debug = False
     app.config["perspective_api"] = config["perspective_api"]
+    app.config["sync_timeout_seconds"] = config.get("sync_timeout_seconds", 300)
     app.run(debug=debug, port=int(config["port"]), host=config["host"])
 
 
