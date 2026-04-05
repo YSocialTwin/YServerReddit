@@ -1,0 +1,10 @@
+{
+  "plugin_name": "YServerReddit",
+  "category": "Simulation Runtime Stack",
+  "group": "Forum",
+  "description": "Server-side forum simulation runtime for Reddit-like YSocial scenarios.",
+  "authors": [
+    "YSocialTwin"
+  ],
+  "repository_url": "https://github.com/YSocialTwin/YServerReddit"
+}
