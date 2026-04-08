@@ -220,6 +220,16 @@ def _ensure_comment_dedupe_schema(app):
         app.logger.warning("comment_dedupe_schema_migration_failed", extra={"error": str(exc)})
 
 
+def _ensure_moderation_schema(app):
+    try:
+        with app.app_context():
+            from y_server.schema_migrations import ensure_moderation_schema
+
+            ensure_moderation_schema(db.engine)
+    except Exception as exc:
+        app.logger.warning("moderation_schema_migration_failed", extra={"error": str(exc)})
+
+
 config = {}
 config_file = os.environ.get(
     "YSERVER_CONFIG", f"config_files{os.sep}exp_config.json"
@@ -316,6 +326,7 @@ _register_request_logging(app)
 _setup_file_logging(app, config, app.config.get("SQLALCHEMY_DATABASE_URI"))
 _ensure_image_post_schema()
 _ensure_comment_dedupe_schema(app)
+_ensure_moderation_schema(app)
 
 from y_server.routes import *
 

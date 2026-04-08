@@ -34,6 +34,8 @@ from y_server.modals import (
     Post_Sentiment,
     Interests,
     ImagePosts,
+    Reported,
+    SysMessage,
     MemoryInteractionEvent,
     MemorySocialCard,
     MemoryThreadCard,
@@ -185,6 +187,57 @@ _PROMPT_SCAFFOLD_PATTERNS = [
     re.compile(r"\bwrite a new caption\b", re.IGNORECASE),
     re.compile(r"\byour interests\s*\(pick one\)\b", re.IGNORECASE),
 ]
+
+
+def _message_active_for_round(message, round_id):
+    if round_id is None:
+        return True
+    try:
+        current_round = int(round_id)
+    except (TypeError, ValueError):
+        return False
+
+    if message.from_round is not None and current_round < int(message.from_round):
+        return False
+    if message.to_round is not None and current_round > int(message.to_round):
+        return False
+    return True
+
+
+def _get_active_system_messages_for_user(user_id, round_id):
+    if user_id is None:
+        return []
+
+    messages = SysMessage.query.filter_by(to_uid=int(user_id)).all()
+    active = []
+    for message in messages:
+        if not _message_active_for_round(message, round_id):
+            continue
+        active.append(
+            {
+                "id": message.id,
+                "type": message.type,
+                "message": message.message,
+                "to_uid": message.to_uid,
+                "from_round": message.from_round,
+                "to_round": message.to_round,
+            }
+        )
+    return active
+
+
+@app.route("/get_active_system_messages", methods=["POST"])
+def get_active_system_messages():
+    """Return active system messages for a user at the requested round."""
+    data = json.loads(request.get_data())
+    user_id = data.get("user_id")
+    round_id = data.get("tid")
+
+    if round_id is None:
+        current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+        round_id = current_round.id if current_round is not None else None
+
+    return json.dumps(_get_active_system_messages_for_user(user_id, round_id))
 
 
 def _looks_like_prompt_scaffold(text_value):
@@ -3083,6 +3136,41 @@ def add_reaction():
     if post is not None:
         post.reaction_count += 1
         db.session.commit()
+
+    return json.dumps({"status": 200})
+
+
+@app.route("/report", methods=["POST"])
+def report_post():
+    """
+    Add a moderation report for a post/comment.
+
+    :return: a json object with the status of the report
+    """
+    data = json.loads(request.get_data())
+    account_id = data["user_id"]
+    post_id = data["post_id"]
+    report_type = str(data["type"]).strip().lower()
+    tid = int(data["tid"])
+
+    if report_type not in {"offensive", "toxic"}:
+        return json.dumps({"status": 400, "error": "invalid report type"})
+
+    user = User_mgmt.query.filter_by(id=account_id).first()
+    post = Post.query.filter_by(id=post_id).first()
+
+    if user is None or post is None:
+        return json.dumps({"status": 404})
+
+    report = Reported(
+        type=report_type,
+        to_uid=post.user_id,
+        to_post=post.id,
+        from_uid=user.id,
+        tid=tid,
+    )
+    db.session.add(report)
+    db.session.commit()
 
     return json.dumps({"status": 200})
 
