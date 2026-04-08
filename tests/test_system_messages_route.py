@@ -28,7 +28,7 @@ def test_get_active_system_messages_filters_user_and_round(monkeypatch):
             to_uid=9,
             message="Prefix the reply with MOD NOTICE.",
             from_round=4,
-            to_round=8,
+            duration=4,
         ),
         SimpleNamespace(
             id=2,
@@ -36,7 +36,7 @@ def test_get_active_system_messages_filters_user_and_round(monkeypatch):
             to_uid=9,
             message="Too early.",
             from_round=10,
-            to_round=12,
+            duration=2,
         ),
         SimpleNamespace(
             id=3,
@@ -44,7 +44,7 @@ def test_get_active_system_messages_filters_user_and_round(monkeypatch):
             to_uid=10,
             message="Other user.",
             from_round=4,
-            to_round=8,
+            duration=4,
         ),
     ]
 
@@ -64,7 +64,7 @@ def test_get_active_system_messages_filters_user_and_round(monkeypatch):
             "message": "Prefix the reply with MOD NOTICE.",
             "to_uid": 9,
             "from_round": 4,
-            "to_round": 8,
+            "duration": 4,
         }
     ]
 
