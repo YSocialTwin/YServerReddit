@@ -1,5 +1,13 @@
+from __future__ import annotations
+
+import threading
+
 from nltk.sentiment import SentimentIntensityAnalyzer
 from y_server.modals import Post_Toxicity
+
+
+_DETOXIFY_SCORER = None
+_DETOXIFY_LOCK = threading.Lock()
 
 
 def _to_scalar(value):
@@ -38,10 +46,20 @@ def _persist_toxicity_scores(post_id, db, scores):
     db.session.commit()
 
 
-def _detoxify_scores(text):
-    from detoxify import Detoxify
+def _get_detoxify_scorer():
+    global _DETOXIFY_SCORER
+    if _DETOXIFY_SCORER is not None:
+        return _DETOXIFY_SCORER
+    with _DETOXIFY_LOCK:
+        if _DETOXIFY_SCORER is None:
+            from detoxify import Detoxify
 
-    scorer = Detoxify("original")
+            _DETOXIFY_SCORER = Detoxify("original")
+    return _DETOXIFY_SCORER
+
+
+def _detoxify_scores(text):
+    scorer = _get_detoxify_scorer()
     raw_scores = scorer.predict(str(text or ""))
     return {
         "toxicity": raw_scores.get("toxicity", 0.0),
@@ -61,8 +79,22 @@ def vader_sentiment(text):
     return sentiment
 
 
-def toxicity(text, api_key, post_id, db):
+def should_annotate_toxicity(config):
+    return bool((config or {}).get("toxicity_annotation", False))
+
+
+def should_annotate_sentiment(config):
+    return bool((config or {}).get("sentiment_annotation", False))
+
+
+def should_annotate_emotions(config):
+    return bool((config or {}).get("emotion_annotation", False))
+
+
+def toxicity(text, api_key, post_id, db, enabled=True):
     try:
+        if not enabled:
+            return
         if api_key:
             from perspective import PerspectiveAPI
 
