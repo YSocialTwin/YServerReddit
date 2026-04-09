@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import threading
+from pathlib import Path
 
 from nltk.sentiment import SentimentIntensityAnalyzer
 from y_server.modals import Post_Toxicity
@@ -8,6 +10,23 @@ from y_server.modals import Post_Toxicity
 
 _DETOXIFY_SCORER = None
 _DETOXIFY_LOCK = threading.Lock()
+
+
+def _configure_model_cache_env():
+    root = Path(os.environ.get("YSOCIAL_MODEL_CACHE_DIR", "~/.cache/ysocial_models")).expanduser()
+    hf_home = root / "huggingface"
+    transformers_cache = hf_home / "transformers"
+    hub_cache = hf_home / "hub"
+    torch_home = root / "torch"
+
+    for path in (root, hf_home, transformers_cache, hub_cache, torch_home):
+        path.mkdir(parents=True, exist_ok=True)
+
+    os.environ.setdefault("YSOCIAL_MODEL_CACHE_DIR", str(root))
+    os.environ.setdefault("HF_HOME", str(hf_home))
+    os.environ.setdefault("TRANSFORMERS_CACHE", str(transformers_cache))
+    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hub_cache))
+    os.environ.setdefault("TORCH_HOME", str(torch_home))
 
 
 def _to_scalar(value):
@@ -52,6 +71,7 @@ def _get_detoxify_scorer():
         return _DETOXIFY_SCORER
     with _DETOXIFY_LOCK:
         if _DETOXIFY_SCORER is None:
+            _configure_model_cache_env()
             from detoxify import Detoxify
 
             _DETOXIFY_SCORER = Detoxify("original")
