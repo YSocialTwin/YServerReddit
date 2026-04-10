@@ -15,7 +15,7 @@ from y_server.utils import (
     get_posts_by_reactions,
     get_posts_by_author,
 )
-from sqlalchemy import desc, inspect, text
+from sqlalchemy import desc, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.expression import func
 from y_server.modals import (
@@ -58,6 +58,48 @@ from y_server.memory_embedding import (
 
 _MEMORY_SCHEMA_READY = False
 _MEMORY_SCHEMA_EVOLUTION_READY = False
+
+
+def _filter_shadow_banned_post_ids(post_ids, current_round_id):
+    if not post_ids or current_round_id is None:
+        return post_ids
+    try:
+        if "shadow_ban" not in inspect(db.engine).get_table_names():
+            return post_ids
+        shadow_ban = db.metadata.tables.get("shadow_ban")
+        if shadow_ban is None:
+            return post_ids
+        active_banned_user_ids = [
+            int(row[0])
+            for row in db.session.execute(
+                select(shadow_ban.c.uid)
+                .where(shadow_ban.c.start_tid <= int(current_round_id))
+                .where(
+                    (shadow_ban.c.duration.is_(None))
+                    | ((shadow_ban.c.start_tid + shadow_ban.c.duration) >= int(current_round_id))
+                )
+            ).all()
+        ]
+        if not active_banned_user_ids:
+            return post_ids
+        banned_post_ids = {
+            int(post_id)
+            for (post_id,) in db.session.query(Post.id)
+            .filter(Post.id.in_(post_ids), Post.user_id.in_(active_banned_user_ids))
+            .all()
+        }
+        if not banned_post_ids:
+            return post_ids
+        return [int(post_id) for post_id in post_ids if int(post_id) not in banned_post_ids]
+    except Exception:
+        return post_ids
+
+
+def _is_shadow_banned_post_hidden(post_id, current_round_id):
+    if post_id in (None, ""):
+        return False
+    filtered = _filter_shadow_banned_post_ids([int(post_id)], current_round_id)
+    return len(filtered) == 0
 _MEMORY_INDEXER_STARTED = False
 _MEMORY_EMBEDDING = MemoryEmbeddingService()
 _MEMORY_QUERY_ALIAS_MAP = {
@@ -1208,11 +1250,13 @@ def read():
 
     # save recommendations
     current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+    current_round_id = current_round.id if current_round is not None else None
+    res = _filter_shadow_banned_post_ids(res, current_round_id)
     if len(res) > 0:
         recs = Recommendations(
             user_id=uid,
             post_ids="|".join([str(x) for x in res]),
-            round=current_round.id,
+            round=current_round_id,
         )
         db.session.add(recs)
         db.session.commit()
@@ -1294,15 +1338,22 @@ def read_mention():
     current_round = Rounds.query.order_by(desc(Rounds.id)).first()
     visibility = current_round.id - vround
 
-    mention = (
+    mention_candidates = (
         Mentions.query.filter(
             Mentions.user_id == uid,
             Mentions.round >= visibility,
             Mentions.answered == 0,
         )
         .order_by(func.random())
-        .limit(1)
-    ).first()
+        .all()
+    )
+
+    mention = None
+    for candidate in mention_candidates:
+        if _is_shadow_banned_post_hidden(candidate.post_id, current_round.id):
+            continue
+        mention = candidate
+        break
 
     if mention is not None:
         mention.answered = 1
