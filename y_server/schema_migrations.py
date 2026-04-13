@@ -88,7 +88,7 @@ def ensure_moderation_schema(engine) -> None:
     """
     Ensure moderation additive schema exists for legacy experiment databases.
     """
-    from y_server.modals import Agent_Custom_Feature, Reported, SysMessage
+    from y_server.modals import Agent_Custom_Feature, Reported, StressReward, SysMessage
 
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -106,6 +106,7 @@ def ensure_moderation_schema(engine) -> None:
 
     SysMessage.__table__.create(bind=engine, checkfirst=True)
     Reported.__table__.create(bind=engine, checkfirst=True)
+    StressReward.__table__.create(bind=engine, checkfirst=True)
     Agent_Custom_Feature.__table__.create(bind=engine, checkfirst=True)
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
