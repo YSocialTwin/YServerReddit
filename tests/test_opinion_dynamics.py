@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from y_server import app, db
-from y_server.modals import Agent_Opinion, Interests
+from y_server.modals import Agent_Custom_Feature, Agent_Opinion, Interests
 
 
 def _post_json(client, path, payload):
@@ -226,3 +226,65 @@ def test_user_interests_still_work_with_opinion_support_present(client):
     body = json.loads(resp.get_data(as_text=True))
 
     assert {row["topic"] for row in body} == {"alpha", "beta"}
+
+
+def test_stubborn_opinions_are_not_updated(client):
+    _register_user(client, name="alice", email="alice@example.org")
+
+    resp = _post_json(
+        client,
+        "/set_user_opinions",
+        {
+            "user_id": 1,
+            "round": 1,
+            "opinions": {"climate": 0.25},
+            "stubborn_topics": ["climate"],
+            "id_interacted_with": -1,
+            "id_post": -1,
+        },
+    )
+    assert resp.status_code == 200
+
+    resp = _post_json(
+        client,
+        "/set_user_opinions",
+        {
+            "user_id": 1,
+            "round": 2,
+            "opinions": {"climate": 0.8},
+            "id_interacted_with": -1,
+            "id_post": -1,
+        },
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        latest = (
+            Agent_Opinion.query.filter_by(agent_id=1)
+            .order_by(Agent_Opinion.tid.desc(), Agent_Opinion.id.desc())
+            .first()
+        )
+        assert latest.opinion == pytest.approx(0.25)
+        assert latest.stubborn == 1
+
+
+def test_user_custom_features_round_trip(client):
+    _register_user(client, name="alice", email="alice@example.org")
+
+    resp = _post_json(
+        client,
+        "/set_user_custom_features",
+        {"user_id": 1, "custom_features": {"Class": "Mage", "Guild": "North"}},
+    )
+    assert resp.status_code == 200
+
+    resp = _post_json(client, "/get_user_custom_features", {"user_id": 1})
+    assert resp.status_code == 200
+    body = json.loads(resp.get_data(as_text=True))
+    assert {item["key"]: item["value"] for item in body} == {
+        "Class": "Mage",
+        "Guild": "North",
+    }
+
+    with app.app_context():
+        assert Agent_Custom_Feature.query.filter_by(user_id=1).count() == 2
