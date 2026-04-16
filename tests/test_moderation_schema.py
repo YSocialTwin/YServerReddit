@@ -73,7 +73,7 @@ def test_ensure_moderation_schema_adds_tables_and_post_column(tmp_path):
     stress_reward_columns = {
         column["name"] for column in inspector.get_columns("stress_reward")
     }
-    assert {"id", "uid", "variable", "value", "type", "tid"} <= stress_reward_columns
+    assert {"id", "uid", "variable", "value", "type", "action", "tid"} <= stress_reward_columns
 
 
 def test_ensure_moderation_schema_migrates_sys_messages_to_duration(tmp_path):

@@ -237,8 +237,17 @@ def churn_agents():
     """
 
     data = json.loads(request.get_data())
-    n_users = data["n_users"]
     left_on = data["left_on"]
+
+    if "user_id" in data:
+        user = User_mgmt.query.filter_by(id=data["user_id"]).first()
+        if user is None:
+            return json.dumps({"status": 404, "removed": {}})
+        user.left_on = left_on
+        db.session.commit()
+        return json.dumps({"status": 200, "removed": {str(user.id): None}})
+
+    n_users = data["n_users"]
 
     #  get the max round value from the post table for each user
     query = (
@@ -380,10 +389,10 @@ def get_timeline():
                 "post_id": post.id,
                 "post": post.tweet,
                 "round": post.round,
-                "reposts": len(post.retweets),
-                "likes": len(list(Reactions.query.filter_by(id=post.id, type="like"))),
+                "reposts": len(list(Post.query.filter_by(shared_from=post.id))),
+                "likes": len(list(Reactions.query.filter_by(post_id=post.id, type="like"))),
                 "dislikes": len(
-                    list(Reactions.query.filter_by(id=post.id, type="dislike"))
+                    list(Reactions.query.filter_by(post_id=post.id, type="dislike"))
                 ),
                 "comments": len(list(Post.query.filter_by(comment_to=post.id))),
             }

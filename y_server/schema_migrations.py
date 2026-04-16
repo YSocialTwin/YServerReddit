@@ -110,6 +110,15 @@ def ensure_moderation_schema(engine) -> None:
     Agent_Custom_Feature.__table__.create(bind=engine, checkfirst=True)
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
+    if "stress_reward" in table_names:
+        stress_reward_columns = {
+            column["name"] for column in inspector.get_columns("stress_reward")
+        }
+        if "action" not in stress_reward_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE stress_reward ADD COLUMN action VARCHAR(64)"))
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
     if "agent_opinion" in table_names:
         opinion_columns = {column["name"] for column in inspector.get_columns("agent_opinion")}
         if "stubborn" not in opinion_columns:

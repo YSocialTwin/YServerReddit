@@ -1,3 +1,5 @@
+from sqlalchemy import CheckConstraint
+
 from y_server import db
 from flask_login import UserMixin
 
@@ -204,13 +206,17 @@ class Agent_Opinion(db.Model):
 class StressReward(db.Model):
     __tablename__ = "stress_reward"
     __table_args__ = (
-        db.CheckConstraint(
+        CheckConstraint(
             "variable IN ('stress', 'reward')", name="ck_stress_reward_variable"
         ),
-        db.CheckConstraint(
+        CheckConstraint(
             "type IN ('aggregate', 'variation')", name="ck_stress_reward_type"
         ),
-        db.CheckConstraint("value >= 0 AND value <= 1", name="ck_stress_reward_value"),
+        CheckConstraint(
+            "(type = 'aggregate' AND value >= 0 AND value <= 1) "
+            "OR (type = 'variation' AND value >= -1 AND value <= 1)",
+            name="ck_stress_reward_value",
+        ),
     )
 
     id = db.Column(db.String(36), primary_key=True)
@@ -218,6 +224,7 @@ class StressReward(db.Model):
     variable = db.Column(db.String(16), nullable=False)
     value = db.Column(db.Float, nullable=False)
     type = db.Column(db.String(16), nullable=False)
+    action = db.Column(db.String(64), nullable=True)
     tid = db.Column(db.Integer, db.ForeignKey("rounds.id"), nullable=False, index=True)
 
 
