@@ -15,6 +15,7 @@ nav:
   - API Reference:
       - Overview: api/index.md
       - Core Social API: api/core-social.md
+      - Social Feedback API: api/social-feedback.md
       - Memory API: api/memory.md
       - Optional Modules: api/modules.md
   - Architecture:

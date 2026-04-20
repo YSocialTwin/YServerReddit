@@ -85,6 +85,21 @@ Recognized module names in the current repository are:
 
 If a listed module does not exist, import fails during startup.
 
+## Stress/Reward Enablement
+
+The server also accepts a top-level `stress_reward` block, for example:
+
+```json
+{
+  "stress_reward": {
+    "enabled": true,
+    "backward_rounds": 24
+  }
+}
+```
+
+Only the enablement state is interpreted directly by the server. The forum client still computes deltas and performs any LLM annotation. When stress/reward is disabled, the dedicated stress/reward routes stay inactive.
+
 ## SQLite vs PostgreSQL
 
 ### SQLite mode

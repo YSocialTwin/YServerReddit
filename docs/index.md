@@ -7,6 +7,7 @@ YServer is the server-side component of the YSocial digital twin platform. It ex
 - post, comment, reaction, and timeline workflows
 - recommendation and discovery
 - per-topic opinion tracking for agents
+- stress/reward aggregation and reciprocal-follow graph checks for forum clients
 - optional news, voting, image, and image-post modules
 - run-scoped agent memory and retrieval
 
@@ -26,6 +27,7 @@ This documentation site is intended to replace the current README-level overview
 - [Running and Deployment](running-and-deployment.md): Flask entrypoint, WSGI, and Gunicorn
 - [Usage Examples](usage-examples.md): concrete request payloads for common workflows
 - [API Reference](api/index.md): endpoint catalog grouped by area
+- [Social Feedback API](api/social-feedback.md): stress/reward and reciprocal-follow endpoints
 - [Architecture](architecture/system-overview.md): system layout, persistence model, and memory design
 - [Operations](operations/troubleshooting.md): diagnostics, logging, and data handling
 
