@@ -9,6 +9,25 @@ def test_forum_comments_copy_thread_topics():
     assert "Post_topics(post_id=new_post.id, topic_id=topic.topic_id)" in source
 
 
+def test_forum_comment_route_resolves_thread_root_before_persisting():
+    source = Path(
+        "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/content_management.py"
+    ).read_text(encoding="utf-8")
+
+    assert "def _resolve_thread_root_id(post):" in source
+    assert "thread_root_id = _resolve_thread_root_id(post)" in source
+    assert "thread_id=thread_root_id" in source
+
+
+def test_forum_thread_lookup_routes_use_resolved_thread_root():
+    source = Path(
+        "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/content_management.py"
+    ).read_text(encoding="utf-8")
+
+    assert "Post.query.filter_by(thread_id=thread_root_id)" in source
+    assert "return json.dumps(_resolve_thread_root_id(post))" in source
+
+
 def test_image_posts_fallback_to_image_subreddit_topic():
     source = Path(
         "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/image_post_management.py"

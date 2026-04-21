@@ -60,6 +60,33 @@ _MEMORY_SCHEMA_READY = False
 _MEMORY_SCHEMA_EVOLUTION_READY = False
 
 
+def _resolve_thread_root_id(post):
+    if post is None:
+        return None
+    current = post
+    visited = set()
+    while current is not None:
+        current_id = int(getattr(current, "id", 0) or 0)
+        if current_id <= 0 or current_id in visited:
+            return current_id or None
+        visited.add(current_id)
+        thread_id = getattr(current, "thread_id", None)
+        if thread_id not in (None, "", 0):
+            try:
+                return int(thread_id)
+            except (TypeError, ValueError):
+                pass
+        comment_to = getattr(current, "comment_to", -1)
+        try:
+            comment_to = int(comment_to)
+        except (TypeError, ValueError):
+            return current_id
+        if comment_to == -1:
+            return current_id
+        current = Post.query.filter_by(id=comment_to).first()
+    return None
+
+
 def _filter_shadow_banned_post_ids(post_ids, current_round_id):
     if not post_ids or current_round_id is None:
         return post_ids
@@ -1543,12 +1570,13 @@ def add_comment():
             )
             return json.dumps({"status": 200, "comment_id": existing.id, "deduped": True})
 
+    thread_root_id = _resolve_thread_root_id(post)
     new_post = Post(
         tweet=text,
         round=tid,
         user_id=user.id,
         comment_to=post_id,
-        thread_id=post.thread_id,
+        thread_id=thread_root_id,
         dedupe_key=dedupe_key,
         client_action_id=client_action_id,
     )
@@ -1604,7 +1632,7 @@ def add_comment():
     sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     # get topics associated to post.id
-    post_topics = Post_topics.query.filter_by(post_id=post.thread_id).all()
+    post_topics = Post_topics.query.filter_by(post_id=thread_root_id).all()
     for topic in post_topics:
         db.session.add(Post_topics(post_id=new_post.id, topic_id=topic.topic_id))
         db.session.commit()
@@ -1697,7 +1725,8 @@ def post_thread():
     if post is None:
         return json.dumps({"status": 404, "error": "Post not found"})
 
-    thread_id = Post.query.filter_by(thread_id=post.thread_id)
+    thread_root_id = _resolve_thread_root_id(post)
+    thread_id = Post.query.filter_by(thread_id=thread_root_id)
 
     res = []
 
@@ -1752,7 +1781,7 @@ def get_thread_tree():
     if post is None:
         return json.dumps({"status": 404, "error": "Post not found"}), 404
 
-    thread_root_id = int(post.thread_id)
+    thread_root_id = int(_resolve_thread_root_id(post) or post.id)
 
     q = (
         db.session.query(Post, User_mgmt.username)
@@ -3075,8 +3104,8 @@ def get_post_topics_name():
     topic_post_id = post_id
     if post is not None:
         direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
-        if not direct_topics and post.thread_id is not None:
-            topic_post_id = post.thread_id
+        if not direct_topics:
+            topic_post_id = _resolve_thread_root_id(post)
     post_topics = Post_topics.query.filter_by(post_id=topic_post_id).all()
 
     res = []
@@ -3254,8 +3283,8 @@ def get_post_topics():
     topic_post_id = post_id
     if post is not None:
         direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
-        if not direct_topics and post.thread_id is not None:
-            topic_post_id = post.thread_id
+        if not direct_topics:
+            topic_post_id = _resolve_thread_root_id(post)
 
     post_topics = Post_topics.query.filter_by(post_id=topic_post_id)
 
@@ -3281,4 +3310,4 @@ def get_thread_root():
     if post is None:
         return json.dumps({"status": 404})
 
-    return json.dumps(post.thread_id)
+    return json.dumps(_resolve_thread_root_id(post))
