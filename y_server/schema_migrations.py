@@ -103,6 +103,13 @@ def ensure_moderation_schema(engine) -> None:
                 conn.execute(
                     text("ALTER TABLE post ADD COLUMN is_moderation_comment INTEGER DEFAULT 0")
                 )
+    if "user_mgmt" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("user_mgmt")}
+        if "cover_image" not in user_columns:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE user_mgmt ADD COLUMN cover_image VARCHAR(400) DEFAULT ''")
+                )
 
     SysMessage.__table__.create(bind=engine, checkfirst=True)
     Reported.__table__.create(bind=engine, checkfirst=True)

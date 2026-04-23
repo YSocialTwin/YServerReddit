@@ -31,6 +31,7 @@ class User_mgmt(UserMixin, db.Model):
     left_on = db.Column(db.Integer, default=None)
     daily_activity_level = db.Column(db.Integer(), default=1)
     profession = db.Column(db.String(50), default="")
+    cover_image = db.Column(db.String(400), nullable=False, default="")
 
     posts = db.relationship("Post", backref="author", lazy=True)
     liked = db.relationship("Reactions", backref="liked_by", lazy=True)

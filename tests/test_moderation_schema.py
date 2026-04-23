@@ -65,6 +65,8 @@ def test_ensure_moderation_schema_adds_tables_and_post_column(tmp_path):
     post_columns = {column["name"] for column in inspector.get_columns("post")}
     assert "moderated" in post_columns
     assert "is_moderation_comment" in post_columns
+    user_columns = {column["name"] for column in inspector.get_columns("user_mgmt")}
+    assert "cover_image" in user_columns
     sys_message_columns = {column["name"] for column in inspector.get_columns("sys_messages")}
     assert "duration" in sys_message_columns
     assert "to_round" not in sys_message_columns
