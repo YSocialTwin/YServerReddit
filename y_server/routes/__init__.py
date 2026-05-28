@@ -5,9 +5,12 @@ from .user_managment import *
 from .content_management import *
 from .interaction_management import *
 from .experiment_management import *
+from .stress_reward_management import *
 
 try:
-    config = json.load(open(f"config_files{os.sep}exp_config.json"))
+    config = json.load(
+        open(os.environ.get("YSERVER_CONFIG", f"config_files{os.sep}exp_config.json"))
+    )
 
     import importlib
 

@@ -1,3 +1,5 @@
+from sqlalchemy import CheckConstraint
+
 from y_server import db
 from flask_login import UserMixin
 
@@ -29,6 +31,7 @@ class User_mgmt(UserMixin, db.Model):
     left_on = db.Column(db.Integer, default=None)
     daily_activity_level = db.Column(db.Integer(), default=1)
     profession = db.Column(db.String(50), default="")
+    cover_image = db.Column(db.String(400), nullable=False, default="")
 
     posts = db.relationship("Post", backref="author", lazy=True)
     liked = db.relationship("Reactions", backref="liked_by", lazy=True)
@@ -49,6 +52,8 @@ class Post(db.Model):
     client_action_id = db.Column(db.String(96), nullable=True, default=None)
     shared_from = db.Column(db.Integer, default=-1)
     reaction_count = db.Column(db.Integer, default=0)
+    moderated = db.Column(db.Integer, default=0, nullable=False)
+    is_moderation_comment = db.Column(db.Integer, default=0, nullable=False)
 
 
 class Hashtags(db.Model):
@@ -103,11 +108,43 @@ class Rounds(db.Model):
     hour = db.Column(db.Integer, nullable=False)
 
 
+class SimulationClient(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    status = db.Column(db.String(16), nullable=False, default="active", index=True)
+    last_heartbeat = db.Column(db.Float, nullable=False, default=0.0)
+    submitted_round_id = db.Column(db.Integer, db.ForeignKey("rounds.id"), nullable=True)
+    created_at = db.Column(db.Float, nullable=False, default=0.0)
+    updated_at = db.Column(db.Float, nullable=False, default=0.0)
+
+
 class Recommendations(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user_mgmt.id"), nullable=False)
     post_ids = db.Column(db.String(500), nullable=False)
     round = db.Column(db.Integer, nullable=False)
+
+
+class SysMessage(db.Model):
+    __tablename__ = "sys_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(50), nullable=False)
+    to_uid = db.Column(db.Integer, db.ForeignKey("user_mgmt.id"), nullable=True)
+    message = db.Column(db.Text, nullable=False)
+    from_round = db.Column(db.Integer, db.ForeignKey("rounds.id"), nullable=True)
+    duration = db.Column(db.Integer, nullable=True)
+
+
+class Reported(db.Model):
+    __tablename__ = "reported"
+
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(50), nullable=False)
+    to_uid = db.Column(db.Integer, db.ForeignKey("user_mgmt.id"), nullable=True)
+    to_post = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=True)
+    from_uid = db.Column(db.Integer, db.ForeignKey("user_mgmt.id"), nullable=False)
+    tid = db.Column(db.Integer, db.ForeignKey("rounds.id"), nullable=False)
 
 
 class Articles(db.Model):
@@ -144,6 +181,62 @@ class Voting(db.Model):
 class Interests(db.Model):
     iid = db.Column(db.Integer, primary_key=True)
     interest = db.Column(db.String(20), nullable=False)
+
+
+class Agent_Opinion(db.Model):
+    """
+    Agent opinion tracking for interactions.
+
+    Stores opinions that agents form about topics, posts, and other agents
+    during their interactions in the simulation. The opinion is stored as
+    a float value representing the agent's sentiment or stance.
+    """
+
+    __tablename__ = "agent_opinion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    agent_id = db.Column(db.Integer, nullable=False, index=True)
+    tid = db.Column(db.Integer, nullable=False, index=True)
+    topic_id = db.Column(db.Integer, db.ForeignKey("interests.iid"), nullable=False, index=True)
+    id_interacted_with = db.Column(db.Integer, nullable=False, default=-1)
+    id_post = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False, default=-1)
+    opinion = db.Column(db.REAL, nullable=False)
+    stubborn = db.Column(db.Integer, nullable=False, default=0)
+
+
+class StressReward(db.Model):
+    __tablename__ = "stress_reward"
+    __table_args__ = (
+        CheckConstraint(
+            "variable IN ('stress', 'reward')", name="ck_stress_reward_variable"
+        ),
+        CheckConstraint(
+            "type IN ('aggregate', 'variation')", name="ck_stress_reward_type"
+        ),
+        CheckConstraint(
+            "(type = 'aggregate' AND value >= 0 AND value <= 1) "
+            "OR (type = 'variation' AND value >= -1 AND value <= 1)",
+            name="ck_stress_reward_value",
+        ),
+    )
+
+    id = db.Column(db.String(36), primary_key=True)
+    uid = db.Column(db.Integer, db.ForeignKey("user_mgmt.id"), nullable=False, index=True)
+    variable = db.Column(db.String(16), nullable=False)
+    value = db.Column(db.Float, nullable=False)
+    type = db.Column(db.String(16), nullable=False)
+    action = db.Column(db.String(64), nullable=True)
+    tid = db.Column(db.Integer, db.ForeignKey("rounds.id"), nullable=False, index=True)
+
+
+class Agent_Custom_Feature(db.Model):
+    __tablename__ = "agent_custom_features"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user_mgmt.id"), nullable=False, index=True)
+    feature_type = db.Column(db.String(20), nullable=False, default="custom")
+    key = db.Column(db.String(120), nullable=False)
+    value = db.Column(db.Text, nullable=True, default="")
 
 
 # ---------------------------------------------------------------------------

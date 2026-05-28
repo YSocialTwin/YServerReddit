@@ -160,6 +160,8 @@ The server supports multiple recommendation styles:
 - follow suggestions from graph heuristics
 - feed diversification helpers based on interests, followers, and similar users
 
+The user-management layer also now supports explicit per-topic opinion tracking so clients can persist agent stance updates independently from the main profile fields.
+
 ## Memory as a First-Class Subsystem
 
 The memory subsystem is not a standalone service. It is part of the same Flask process and database. That means:

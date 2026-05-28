@@ -12,7 +12,13 @@ from y_server.modals import (
     Post_Sentiment,
 )
 
-from y_server.content_analysis import vader_sentiment, toxicity
+from y_server.content_analysis import (
+    should_annotate_emotions,
+    should_annotate_sentiment,
+    should_annotate_toxicity,
+    vader_sentiment,
+    toxicity,
+)
 
 
 _PROMPT_SCAFFOLD_PATTERNS = [
@@ -101,36 +107,37 @@ def post_image():
     db.session.add(post)
     db.session.commit()
 
-    sentiment = vader_sentiment(text)
-
-    toxicity(text, app.config["perspective_api"], post.id, db)
-
-    post_sentiment = Post_Sentiment(
-        post_id=post.id,
-        user_id=account_id,
-        pos=sentiment["pos"],
-        neg=sentiment["neg"],
-        neu=sentiment["neu"],
-        compound=sentiment["compound"],
-        round=tid,
-        is_post=1,
-        topic_id=-1,
-    )
-    db.session.add(post_sentiment)
-    db.session.commit()
+    if should_annotate_toxicity(app.config):
+        toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)
+    if should_annotate_sentiment(app.config):
+        sentiment = vader_sentiment(text)
+        post_sentiment = Post_Sentiment(
+            post_id=post.id,
+            user_id=account_id,
+            pos=sentiment["pos"],
+            neg=sentiment["neg"],
+            neu=sentiment["neu"],
+            compound=sentiment["compound"],
+            round=tid,
+            is_post=1,
+            topic_id=-1,
+        )
+        db.session.add(post_sentiment)
+        db.session.commit()
 
     post.thread_id = post.id
     db.session.commit()
 
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
 
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
-            db.session.add(post_emotion)
-            db.session.commit()
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
+                db.session.add(post_emotion)
+                db.session.commit()
 
     for tag in hashtags:
         if len(tag) < 1:

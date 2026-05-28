@@ -15,7 +15,7 @@ from y_server.utils import (
     get_posts_by_reactions,
     get_posts_by_author,
 )
-from sqlalchemy import desc, inspect, text
+from sqlalchemy import desc, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.expression import func
 from y_server.modals import (
@@ -34,13 +34,21 @@ from y_server.modals import (
     Post_Sentiment,
     Interests,
     ImagePosts,
+    Reported,
+    SysMessage,
     MemoryInteractionEvent,
     MemorySocialCard,
     MemoryThreadCard,
     MemoryCommunityDigest,
     MemoryItem,
 )
-from y_server.content_analysis import vader_sentiment, toxicity
+from y_server.content_analysis import (
+    should_annotate_emotions,
+    should_annotate_sentiment,
+    should_annotate_toxicity,
+    vader_sentiment,
+    toxicity,
+)
 from y_server.memory_embedding import (
     MemoryEmbeddingService,
     cosine_similarity,
@@ -50,6 +58,75 @@ from y_server.memory_embedding import (
 
 _MEMORY_SCHEMA_READY = False
 _MEMORY_SCHEMA_EVOLUTION_READY = False
+
+
+def _resolve_thread_root_id(post):
+    if post is None:
+        return None
+    current = post
+    visited = set()
+    while current is not None:
+        current_id = int(getattr(current, "id", 0) or 0)
+        if current_id <= 0 or current_id in visited:
+            return current_id or None
+        visited.add(current_id)
+        thread_id = getattr(current, "thread_id", None)
+        if thread_id not in (None, "", 0):
+            try:
+                return int(thread_id)
+            except (TypeError, ValueError):
+                pass
+        comment_to = getattr(current, "comment_to", -1)
+        try:
+            comment_to = int(comment_to)
+        except (TypeError, ValueError):
+            return current_id
+        if comment_to == -1:
+            return current_id
+        current = Post.query.filter_by(id=comment_to).first()
+    return None
+
+
+def _filter_shadow_banned_post_ids(post_ids, current_round_id):
+    if not post_ids or current_round_id is None:
+        return post_ids
+    try:
+        if "shadow_ban" not in inspect(db.engine).get_table_names():
+            return post_ids
+        shadow_ban = db.metadata.tables.get("shadow_ban")
+        if shadow_ban is None:
+            return post_ids
+        active_banned_user_ids = [
+            int(row[0])
+            for row in db.session.execute(
+                select(shadow_ban.c.uid)
+                .where(shadow_ban.c.start_tid <= int(current_round_id))
+                .where(
+                    (shadow_ban.c.duration.is_(None))
+                    | ((shadow_ban.c.start_tid + shadow_ban.c.duration) >= int(current_round_id))
+                )
+            ).all()
+        ]
+        if not active_banned_user_ids:
+            return post_ids
+        banned_post_ids = {
+            int(post_id)
+            for (post_id,) in db.session.query(Post.id)
+            .filter(Post.id.in_(post_ids), Post.user_id.in_(active_banned_user_ids))
+            .all()
+        }
+        if not banned_post_ids:
+            return post_ids
+        return [int(post_id) for post_id in post_ids if int(post_id) not in banned_post_ids]
+    except Exception:
+        return post_ids
+
+
+def _is_shadow_banned_post_hidden(post_id, current_round_id):
+    if post_id in (None, ""):
+        return False
+    filtered = _filter_shadow_banned_post_ids([int(post_id)], current_round_id)
+    return len(filtered) == 0
 _MEMORY_INDEXER_STARTED = False
 _MEMORY_EMBEDDING = MemoryEmbeddingService()
 _MEMORY_QUERY_ALIAS_MAP = {
@@ -185,6 +262,59 @@ _PROMPT_SCAFFOLD_PATTERNS = [
     re.compile(r"\bwrite a new caption\b", re.IGNORECASE),
     re.compile(r"\byour interests\s*\(pick one\)\b", re.IGNORECASE),
 ]
+
+
+def _message_active_for_round(message, round_id):
+    if round_id is None:
+        return True
+    try:
+        current_round = int(round_id)
+    except (TypeError, ValueError):
+        return False
+
+    if message.from_round is not None and current_round < int(message.from_round):
+        return False
+    if message.from_round is not None and message.duration is not None:
+        max_active_round = int(message.from_round) + int(message.duration)
+        if current_round > max_active_round:
+            return False
+    return True
+
+
+def _get_active_system_messages_for_user(user_id, round_id):
+    if user_id is None:
+        return []
+
+    messages = SysMessage.query.filter_by(to_uid=int(user_id)).all()
+    active = []
+    for message in messages:
+        if not _message_active_for_round(message, round_id):
+            continue
+        active.append(
+            {
+                "id": message.id,
+                "type": message.type,
+                "message": message.message,
+                "to_uid": message.to_uid,
+                "from_round": message.from_round,
+                "duration": message.duration,
+            }
+        )
+    return active
+
+
+@app.route("/get_active_system_messages", methods=["POST"])
+def get_active_system_messages():
+    """Return active system messages for a user at the requested round."""
+    data = json.loads(request.get_data())
+    user_id = data.get("user_id")
+    round_id = data.get("tid")
+
+    if round_id is None:
+        current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+        round_id = current_round.id if current_round is not None else None
+
+    return json.dumps(_get_active_system_messages_for_user(user_id, round_id))
 
 
 def _looks_like_prompt_scaffold(text_value):
@@ -1147,11 +1277,13 @@ def read():
 
     # save recommendations
     current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+    current_round_id = current_round.id if current_round is not None else None
+    res = _filter_shadow_banned_post_ids(res, current_round_id)
     if len(res) > 0:
         recs = Recommendations(
             user_id=uid,
             post_ids="|".join([str(x) for x in res]),
-            round=current_round.id,
+            round=current_round_id,
         )
         db.session.add(recs)
         db.session.commit()
@@ -1233,15 +1365,22 @@ def read_mention():
     current_round = Rounds.query.order_by(desc(Rounds.id)).first()
     visibility = current_round.id - vround
 
-    mention = (
+    mention_candidates = (
         Mentions.query.filter(
             Mentions.user_id == uid,
             Mentions.round >= visibility,
             Mentions.answered == 0,
         )
         .order_by(func.random())
-        .limit(1)
-    ).first()
+        .all()
+    )
+
+    mention = None
+    for candidate in mention_candidates:
+        if _is_shadow_banned_post_hidden(candidate.post_id, current_round.id):
+            continue
+        mention = candidate
+        break
 
     if mention is not None:
         mention.answered = 1
@@ -1285,9 +1424,9 @@ def add_post():
     db.session.add(post)
     db.session.commit()
 
-    sentiment = vader_sentiment(text)
-
-    toxicity(text, app.config["perspective_api"], post.id, db)
+    if should_annotate_toxicity(app.config):
+        toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)
+    sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     post.thread_id = post.id
     db.session.commit()
@@ -1297,29 +1436,31 @@ def add_post():
         db.session.add(tp)
         db.session.commit()
 
-        post_sentiment = Post_Sentiment(
-            post_id=post.id,
-            user_id=user.id,
-            pos=sentiment["pos"],
-            neg=sentiment["neg"],
-            neu=sentiment["neu"],
-            compound=sentiment["compound"],
-            round=tid,
-            is_post=1,
-            topic_id=topic_id,
-        )
-        db.session.add(post_sentiment)
-        db.session.commit()
-
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
-
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
-            db.session.add(post_emotion)
+        if sentiment is not None:
+            post_sentiment = Post_Sentiment(
+                post_id=post.id,
+                user_id=user.id,
+                pos=sentiment["pos"],
+                neg=sentiment["neg"],
+                neu=sentiment["neu"],
+                compound=sentiment["compound"],
+                round=tid,
+                is_post=1,
+                topic_id=topic_id,
+            )
+            db.session.add(post_sentiment)
             db.session.commit()
+
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
+
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
+                db.session.add(post_emotion)
+                db.session.commit()
 
     for tag in hastags:
         if len(tag) < 4:
@@ -1429,12 +1570,13 @@ def add_comment():
             )
             return json.dumps({"status": 200, "comment_id": existing.id, "deduped": True})
 
+    thread_root_id = _resolve_thread_root_id(post)
     new_post = Post(
         tweet=text,
         round=tid,
         user_id=user.id,
         comment_to=post_id,
-        thread_id=post.thread_id,
+        thread_id=thread_root_id,
         dedupe_key=dedupe_key,
         client_action_id=client_action_id,
     )
@@ -1485,37 +1627,41 @@ def add_comment():
     else:
         sentiment_parent = ""
 
-    sentiment = vader_sentiment(text)
-
-    toxicity(text, app.config["perspective_api"], new_post.id, db)
+    if should_annotate_toxicity(app.config):
+        toxicity(text, app.config.get("perspective_api"), new_post.id, db, enabled=True)
+    sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     # get topics associated to post.id
-    post_topics = Post_topics.query.filter_by(post_id=post.thread_id).all()
+    post_topics = Post_topics.query.filter_by(post_id=thread_root_id).all()
     for topic in post_topics:
-        post_sentiment = Post_Sentiment(
-            post_id=new_post.id,
-            user_id=user.id,
-            pos=sentiment["pos"],
-            neg=sentiment["neg"],
-            neu=sentiment["neu"],
-            compound=sentiment["compound"],
-            sentiment_parent=sentiment_parent,
-            round=tid,
-            is_comment=1,
-            topic_id=topic.topic_id,
-        )
-        db.session.add(post_sentiment)
+        db.session.add(Post_topics(post_id=new_post.id, topic_id=topic.topic_id))
         db.session.commit()
-
-    for emotion in emotions:
-        if len(emotion) < 1:
-            continue
-
-        em = Emotions.query.filter_by(emotion=emotion).first()
-        if em is not None:
-            post_emotion = Post_emotions(post_id=new_post.id, emotion_id=em.id)
-            db.session.add(post_emotion)
+        if sentiment is not None:
+            post_sentiment = Post_Sentiment(
+                post_id=new_post.id,
+                user_id=user.id,
+                pos=sentiment["pos"],
+                neg=sentiment["neg"],
+                neu=sentiment["neu"],
+                compound=sentiment["compound"],
+                sentiment_parent=sentiment_parent,
+                round=tid,
+                is_comment=1,
+                topic_id=topic.topic_id,
+            )
+            db.session.add(post_sentiment)
             db.session.commit()
+
+    if should_annotate_emotions(app.config):
+        for emotion in emotions:
+            if len(emotion) < 1:
+                continue
+
+            em = Emotions.query.filter_by(emotion=emotion).first()
+            if em is not None:
+                post_emotion = Post_emotions(post_id=new_post.id, emotion_id=em.id)
+                db.session.add(post_emotion)
+                db.session.commit()
 
     for tag in hastags:
         if len(tag) < 1:
@@ -1579,7 +1725,8 @@ def post_thread():
     if post is None:
         return json.dumps({"status": 404, "error": "Post not found"})
 
-    thread_id = Post.query.filter_by(thread_id=post.thread_id)
+    thread_root_id = _resolve_thread_root_id(post)
+    thread_id = Post.query.filter_by(thread_id=thread_root_id)
 
     res = []
 
@@ -1634,7 +1781,7 @@ def get_thread_tree():
     if post is None:
         return json.dumps({"status": 404, "error": "Post not found"}), 404
 
-    thread_root_id = int(post.thread_id)
+    thread_root_id = int(_resolve_thread_root_id(post) or post.id)
 
     q = (
         db.session.query(Post, User_mgmt.username)
@@ -2953,7 +3100,13 @@ def get_post_topics_name():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post_topics = Post_topics.query.filter_by(post_id=post_id).all()
+    post = Post.query.filter_by(id=post_id).first()
+    topic_post_id = post_id
+    if post is not None:
+        direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
+        if not direct_topics:
+            topic_post_id = _resolve_thread_root_id(post)
+    post_topics = Post_topics.query.filter_by(post_id=topic_post_id).all()
 
     res = []
     for topic in post_topics:
@@ -3081,6 +3234,41 @@ def add_reaction():
     return json.dumps({"status": 200})
 
 
+@app.route("/report", methods=["POST"])
+def report_post():
+    """
+    Add a moderation report for a post/comment.
+
+    :return: a json object with the status of the report
+    """
+    data = json.loads(request.get_data())
+    account_id = data["user_id"]
+    post_id = data["post_id"]
+    report_type = str(data["type"]).strip().lower()
+    tid = int(data["tid"])
+
+    if report_type not in {"offensive", "toxic"}:
+        return json.dumps({"status": 400, "error": "invalid report type"})
+
+    user = User_mgmt.query.filter_by(id=account_id).first()
+    post = Post.query.filter_by(id=post_id).first()
+
+    if user is None or post is None:
+        return json.dumps({"status": 404})
+
+    report = Reported(
+        type=report_type,
+        to_uid=post.user_id,
+        to_post=post.id,
+        from_uid=user.id,
+        tid=tid,
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    return json.dumps({"status": 200})
+
+
 @app.route("/get_post_topics", methods=["GET"])
 def get_post_topics():
     """
@@ -3091,7 +3279,14 @@ def get_post_topics():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post_topics = Post_topics.query.filter_by(post_id=post_id)
+    post = Post.query.filter_by(id=post_id).first()
+    topic_post_id = post_id
+    if post is not None:
+        direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
+        if not direct_topics:
+            topic_post_id = _resolve_thread_root_id(post)
+
+    post_topics = Post_topics.query.filter_by(post_id=topic_post_id)
 
     res = []
     for topic in post_topics:
@@ -3115,4 +3310,4 @@ def get_thread_root():
     if post is None:
         return json.dumps({"status": 404})
 
-    return json.dumps(post.thread_id)
+    return json.dumps(_resolve_thread_root_id(post))

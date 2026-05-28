@@ -1,0 +1,19 @@
+{
+  "name": "testbed_bot_yclientreddit_embed_10a",
+  "host": "127.0.0.1",
+  "port": 5054,
+  "debug": "False",
+  "reset_db": "True",
+  "modules": [
+    "news",
+    "voting",
+    "image",
+    "image_post"
+  ],
+  "perspective_api": null,
+  "memory_embeddings": {
+    "service": "ollama",
+    "host": "http://127.0.0.1:11434",
+    "model": "embeddinggemma:latest"
+  }
+}

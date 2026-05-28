@@ -1,8 +1,85 @@
 import json
 from flask import request
 from y_server import app, db
-from sqlalchemy import desc
-from y_server.modals import Post, User_mgmt, Reactions, User_interest, Interests, Rounds
+from sqlalchemy import desc, func, inspect
+from y_server.modals import (
+    Agent_Custom_Feature,
+    Agent_Opinion,
+    Follow,
+    Interests,
+    Post,
+    Reactions,
+    Rounds,
+    User_interest,
+    User_mgmt,
+)
+
+
+def _normalize_custom_features_payload(raw_features):
+    normalized = []
+    if isinstance(raw_features, dict):
+        for key, value in raw_features.items():
+            feature_key = str(key or "").strip()
+            if not feature_key:
+                continue
+            normalized.append(
+                {
+                    "feature_type": "custom",
+                    "key": feature_key,
+                    "value": "" if value is None else str(value),
+                }
+            )
+        return normalized
+    if not isinstance(raw_features, list):
+        return normalized
+    for item in raw_features:
+        if not isinstance(item, dict):
+            continue
+        feature_key = str(item.get("key") or "").strip()
+        if not feature_key:
+            continue
+        normalized.append(
+            {
+                "feature_type": str(item.get("feature_type") or "custom").strip() or "custom",
+                "key": feature_key,
+                "value": "" if item.get("value") is None else str(item.get("value")),
+            }
+        )
+    return normalized
+
+
+def _normalize_stubborn_topics(raw_stubborn_topics):
+    if isinstance(raw_stubborn_topics, dict):
+        return {
+            str(topic).strip()
+            for topic, is_stubborn in raw_stubborn_topics.items()
+            if str(topic).strip() and bool(is_stubborn)
+        }
+    if isinstance(raw_stubborn_topics, (list, tuple, set)):
+        return {str(topic).strip() for topic in raw_stubborn_topics if str(topic).strip()}
+    return set()
+
+
+def _latest_agent_opinion(agent_id, topic_id):
+    return (
+        Agent_Opinion.query.filter_by(agent_id=agent_id, topic_id=topic_id)
+        .order_by(Agent_Opinion.tid.desc(), Agent_Opinion.id.desc())
+        .first()
+    )
+
+
+def _ensure_agent_opinion_schema():
+    try:
+        table_names = set(inspect(db.engine).get_table_names())
+        if "agent_opinion" in table_names:
+            return
+    except Exception:
+        pass
+
+    try:
+        db.create_all()
+    except Exception:
+        pass
 
 
 @app.route("/get_user_id", methods=["GET", "POST"])
@@ -160,8 +237,17 @@ def churn_agents():
     """
 
     data = json.loads(request.get_data())
-    n_users = data["n_users"]
     left_on = data["left_on"]
+
+    if "user_id" in data:
+        user = User_mgmt.query.filter_by(id=data["user_id"]).first()
+        if user is None:
+            return json.dumps({"status": 404, "removed": {}})
+        user.left_on = left_on
+        db.session.commit()
+        return json.dumps({"status": 200, "removed": {str(user.id): None}})
+
+    n_users = data["n_users"]
 
     #  get the max round value from the post table for each user
     query = (
@@ -303,10 +389,10 @@ def get_timeline():
                 "post_id": post.id,
                 "post": post.tweet,
                 "round": post.round,
-                "reposts": len(post.retweets),
-                "likes": len(list(Reactions.query.filter_by(id=post.id, type="like"))),
+                "reposts": len(list(Post.query.filter_by(shared_from=post.id))),
+                "likes": len(list(Reactions.query.filter_by(post_id=post.id, type="like"))),
                 "dislikes": len(
-                    list(Reactions.query.filter_by(id=post.id, type="dislike"))
+                    list(Reactions.query.filter_by(post_id=post.id, type="dislike"))
                 ),
                 "comments": len(list(Post.query.filter_by(comment_to=post.id))),
             }
@@ -411,3 +497,203 @@ def get_user_interests():
         res.append({"id": int(interest[0]), "topic": interest.interest})
 
     return json.dumps(res)
+
+
+@app.route("/get_user_opinions", methods=["POST"])
+def get_user_opinions():
+    """
+    Get the latest opinions of a user mapped to interest names.
+
+    :return: a json object with opinions {interest_name: [opinion_value, topic_id]}
+    """
+    _ensure_agent_opinion_schema()
+    data = json.loads(request.get_data())
+    user_id = int(data["user_id"])
+
+    subq = (
+        db.session.query(
+            Agent_Opinion.topic_id,
+            func.max(Agent_Opinion.tid).label("max_tid"),
+        )
+        .filter(Agent_Opinion.agent_id == user_id)
+        .group_by(Agent_Opinion.topic_id)
+        .subquery()
+    )
+
+    rows = (
+        db.session.query(Interests.interest, Interests.iid, Agent_Opinion.opinion)
+        .join(
+            subq,
+            (Agent_Opinion.topic_id == subq.c.topic_id)
+            & (Agent_Opinion.tid == subq.c.max_tid),
+        )
+        .join(Interests, Agent_Opinion.topic_id == Interests.iid)
+        .filter(Agent_Opinion.agent_id == user_id)
+        .all()
+    )
+
+    res = {row.interest: [float(row.opinion), int(row.iid)] for row in rows}
+    return json.dumps(res)
+
+
+@app.route("/get_users_opinions", methods=["POST"])
+def get_users_opinions():
+    """
+    Get the latest opinions of followed users for a given topic.
+
+    :return: a json array with opinion values
+    """
+    _ensure_agent_opinion_schema()
+    data = json.loads(request.get_data())
+    user_id = int(data["user_id"])
+    topic = str(data["topic"])
+
+    interest = Interests.query.filter_by(interest=topic).first()
+    if interest is None:
+        return json.dumps([])
+    target_topic_id = int(interest.iid)
+
+    followee_ids = [
+        f.follower_id
+        for f in Follow.query.filter_by(user_id=user_id, action="follow").all()
+    ]
+    if not followee_ids:
+        return json.dumps([])
+
+    subq = (
+        db.session.query(
+            Agent_Opinion.agent_id,
+            func.max(Agent_Opinion.tid).label("max_tid"),
+        )
+        .filter(
+            Agent_Opinion.topic_id == target_topic_id,
+            Agent_Opinion.agent_id.in_(followee_ids),
+        )
+        .group_by(Agent_Opinion.agent_id)
+        .subquery()
+    )
+
+    rows = (
+        db.session.query(Agent_Opinion.opinion)
+        .join(
+            subq,
+            (Agent_Opinion.agent_id == subq.c.agent_id)
+            & (Agent_Opinion.tid == subq.c.max_tid),
+        )
+        .filter(
+            Agent_Opinion.topic_id == target_topic_id,
+            Agent_Opinion.agent_id.in_(followee_ids),
+        )
+        .all()
+    )
+
+    return json.dumps([float(row.opinion) for row in rows])
+
+
+@app.route("/set_user_opinions", methods=["POST"])
+def set_user_opinions():
+    """
+    Store topic opinions for a user for a given round.
+
+    :return: a json object with the status of the update
+    """
+    _ensure_agent_opinion_schema()
+    data = json.loads(request.get_data())
+
+    agent_id = int(data.get("user_id"))
+    opinions = data.get("opinions", {})
+    tid = int(data.get("round"))
+    id_interacted_with = int(data.get("id_interacted_with", -1))
+    id_post = int(data.get("id_post", -1))
+    stubborn_topics = _normalize_stubborn_topics(data.get("stubborn_topics"))
+
+    try:
+        for topic_id, opinion_value in opinions.items():
+            resolved_topic_id = topic_id
+            if isinstance(topic_id, str):
+                try:
+                    resolved_topic_id = int(topic_id)
+                    interest = Interests.query.filter_by(iid=resolved_topic_id).first()
+                    if interest is None:
+                        raise ValueError(f"Interest ID {resolved_topic_id} does not exist.")
+                except Exception:
+                    interest = Interests.query.filter_by(interest=topic_id).first()
+                    if interest is None:
+                        interest = Interests(interest=topic_id)
+                        db.session.add(interest)
+                        db.session.commit()
+                    resolved_topic_id = int(interest.iid)
+
+            latest_opinion = _latest_agent_opinion(agent_id, int(resolved_topic_id))
+            is_stubborn = bool(latest_opinion.stubborn) if latest_opinion is not None else False
+            interest_name = Interests.query.filter_by(iid=int(resolved_topic_id)).with_entities(
+                Interests.interest
+            ).scalar()
+            if interest_name and interest_name in stubborn_topics:
+                is_stubborn = True
+            stored_opinion = (
+                float(latest_opinion.opinion)
+                if latest_opinion is not None and bool(latest_opinion.stubborn)
+                else float(opinion_value)
+            )
+
+            db.session.add(
+                Agent_Opinion(
+                    agent_id=agent_id,
+                    tid=tid,
+                    topic_id=int(resolved_topic_id),
+                    id_interacted_with=id_interacted_with,
+                    id_post=id_post,
+                    opinion=stored_opinion,
+                    stubborn=1 if is_stubborn else 0,
+                )
+            )
+
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return json.dumps({"status": 400, "error": str(exc)}), 400
+
+    return json.dumps({"status": 200})
+
+
+@app.route("/set_user_custom_features", methods=["POST"])
+def set_user_custom_features():
+    data = json.loads(request.get_data())
+    user_id = int(data.get("user_id"))
+    features = _normalize_custom_features_payload(data.get("custom_features"))
+
+    try:
+        Agent_Custom_Feature.query.filter_by(user_id=user_id).delete()
+        for feature in features:
+            db.session.add(
+                Agent_Custom_Feature(
+                    user_id=user_id,
+                    feature_type=feature["feature_type"],
+                    key=feature["key"],
+                    value=feature["value"],
+                )
+            )
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return json.dumps({"status": 400, "error": str(exc)}), 400
+
+    return json.dumps({"status": 200})
+
+
+@app.route("/get_user_custom_features", methods=["POST"])
+def get_user_custom_features():
+    data = json.loads(request.get_data())
+    user_id = int(data.get("user_id"))
+    rows = Agent_Custom_Feature.query.filter_by(user_id=user_id).all()
+    return json.dumps(
+        [
+            {
+                "feature_type": row.feature_type,
+                "key": row.key,
+                "value": row.value,
+            }
+            for row in rows
+        ]
+    )

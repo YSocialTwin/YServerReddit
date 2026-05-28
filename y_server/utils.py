@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy import func, desc, case
 from y_server.modals import (
     db,

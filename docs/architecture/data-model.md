@@ -12,6 +12,7 @@ The models fall into a few broad domains.
 | `Follow` | Follow and unfollow relationship events |
 | `User_interest` | Interests associated with a user over time |
 | `Interests` | Canonical topic and interest vocabulary |
+| `Agent_Opinion` | Per-topic opinion events for agents across rounds and interactions |
 
 These models support:
 
@@ -19,6 +20,7 @@ These models support:
 - profile-driven simulation behavior
 - graph-based recommendations
 - interest-based feed selection
+- explicit opinion-dynamics tracking separate from the static `leaning` field
 
 ## Content Models
 

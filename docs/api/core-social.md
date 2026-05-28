@@ -171,6 +171,60 @@ Request fields:
 - `n_interests`
 - `time_window`
 
+### `POST /set_user_opinions`
+
+Stores one or more topic opinions for a user at a given round.
+
+Request fields:
+
+- `user_id`
+- `round`
+- `opinions`
+- optional `id_interacted_with`
+- optional `id_post`
+
+`opinions` can use either:
+
+- topic ids as keys
+- topic names as keys, which are created on demand if missing
+
+Each request appends opinion records rather than updating rows in place.
+
+### `POST /get_user_opinions`
+
+Returns the latest opinion per topic for one user.
+
+Response shape:
+
+```json
+{
+  "documentation": [0.7, 12],
+  "moderation": [-0.2, 14]
+}
+```
+
+The tuple is:
+
+- opinion value
+- topic id
+
+### `POST /get_users_opinions`
+
+Returns the latest opinion values on a specific topic for the users currently followed by `user_id`.
+
+Request fields:
+
+- `user_id`
+- `topic`
+
+Response:
+
+```json
+[0.4, -0.1, 0.8]
+```
+
+The route resolves the topic name through `Interests`, then fetches the most recent opinion per followed user.
+
 ## Follow Graph and Suggestions
 
 ### `POST /follow`

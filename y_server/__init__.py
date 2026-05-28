@@ -1,13 +1,92 @@
+import json
+import logging, time
+import os
+import shutil
+from logging.handlers import RotatingFileHandler
+
+import flask_sqlalchemy
+from pythonjsonlogger import jsonlogger
+import sqlalchemy
+import sqlalchemy.orm
 from flask import Flask, request, g
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.pool import NullPool
 from sqlalchemy import inspect, text
-import json
-import shutil
-import os
-import logging, time
-from logging.handlers import RotatingFileHandler
-from pythonjsonlogger import jsonlogger
+from sqlalchemy.pool import NullPool
+
+
+def _ensure_flask_sqlalchemy_legacy_compat() -> None:
+    """
+    Keep Flask-SQLAlchemy 2.x compatible with SQLAlchemy 2.x.
+    """
+
+    if not hasattr(sqlalchemy.orm, "relation") and hasattr(
+        sqlalchemy.orm, "relationship"
+    ):
+        sqlalchemy.orm.relation = sqlalchemy.orm.relationship
+
+    sqlalchemy_public = [
+        "Column",
+        "Integer",
+        "BigInteger",
+        "REAL",
+        "Float",
+        "Boolean",
+        "String",
+        "Text",
+        "DateTime",
+        "ForeignKey",
+        "UniqueConstraint",
+        "CheckConstraint",
+        "PrimaryKeyConstraint",
+        "ForeignKeyConstraint",
+        "Index",
+        "Table",
+        "func",
+        "text",
+        "or_",
+        "desc",
+    ]
+    orm_public = [
+        "relationship",
+        "relation",
+        "dynamic_loader",
+        "backref",
+    ]
+
+    if not hasattr(sqlalchemy, "__all__"):
+        sqlalchemy.__all__ = [
+            name for name in sqlalchemy_public if hasattr(sqlalchemy, name)
+        ]
+    if not hasattr(sqlalchemy.orm, "__all__"):
+        sqlalchemy.orm.__all__ = [
+            name for name in orm_public if hasattr(sqlalchemy.orm, name)
+        ]
+
+    session_base = getattr(flask_sqlalchemy, "SessionBase", None)
+    signalling_session = getattr(flask_sqlalchemy, "SignallingSession", None)
+    if session_base is not None and signalling_session is not None:
+        original_get_bind = signalling_session.get_bind
+        if not getattr(original_get_bind, "_ysocial_sa2_compat", False):
+
+            def _compat_get_bind(self, mapper=None, clause=None):
+                if mapper is not None:
+                    try:
+                        persist_selectable = mapper.persist_selectable
+                    except AttributeError:
+                        persist_selectable = mapper.mapped_table
+
+                    info = getattr(persist_selectable, "info", {})
+                    bind_key = info.get("bind_key")
+                    if bind_key is not None:
+                        state = flask_sqlalchemy.get_state(self.app)
+                        return state.db.get_engine(self.app, bind=bind_key)
+                return session_base.get_bind(self, mapper, clause=clause)
+
+            _compat_get_bind._ysocial_sa2_compat = True
+            signalling_session.get_bind = _compat_get_bind
+
+
+_ensure_flask_sqlalchemy_legacy_compat()
 
 metrics_logger = logging.getLogger("yserver.metrics")
 
@@ -220,6 +299,16 @@ def _ensure_comment_dedupe_schema(app):
         app.logger.warning("comment_dedupe_schema_migration_failed", extra={"error": str(exc)})
 
 
+def _ensure_moderation_schema(app):
+    try:
+        with app.app_context():
+            from y_server.schema_migrations import ensure_moderation_schema
+
+            ensure_moderation_schema(db.engine)
+    except Exception as exc:
+        app.logger.warning("moderation_schema_migration_failed", extra={"error": str(exc)})
+
+
 config = {}
 config_file = os.environ.get(
     "YSERVER_CONFIG", f"config_files{os.sep}exp_config.json"
@@ -316,5 +405,13 @@ _register_request_logging(app)
 _setup_file_logging(app, config, app.config.get("SQLALCHEMY_DATABASE_URI"))
 _ensure_image_post_schema()
 _ensure_comment_dedupe_schema(app)
+_ensure_moderation_schema(app)
 
 from y_server.routes import *
+
+try:
+    from y_server.routes.content_management import configure_memory_embedding_from_config
+
+    configure_memory_embedding_from_config(config)
+except Exception:
+    pass
