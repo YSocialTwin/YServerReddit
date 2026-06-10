@@ -134,3 +134,4 @@ def test_content_management_sanitizes_emotion_payloads():
 
     assert "_looks_like_emotion_payload" in content_text
     assert "cleaned = \"\"" in content_text
+    assert "no emotions were found" in content_text

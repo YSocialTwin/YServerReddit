@@ -324,6 +324,10 @@ def _looks_like_prompt_scaffold(text_value):
     normalized = re.sub(r"\s+", " ", text).strip().lower()
     if not normalized:
         return False
+    if "no emotions were found" in normalized:
+        return True
+    if "annotated sentence" in normalized and "emotion" in normalized:
+        return True
     return any(pattern.search(normalized) for pattern in _PROMPT_SCAFFOLD_PATTERNS)
 
 
