@@ -348,9 +348,57 @@ def _sanitize_generated_text(text_value, *, max_len=None):
     cleaned = "\n".join(lines).strip()
     if cleaned and _looks_like_prompt_scaffold(cleaned):
         cleaned = ""
+    if cleaned and _looks_like_emotion_payload(cleaned):
+        cleaned = ""
     if max_len is not None and len(cleaned) > int(max_len):
         cleaned = cleaned[: int(max_len)]
     return cleaned
+
+
+def _looks_like_emotion_payload(text_value):
+    text = str(text_value or "").strip().lower()
+    if not text:
+        return False
+
+    allowed = {
+        "admiration",
+        "amusement",
+        "anger",
+        "annoyance",
+        "approval",
+        "caring",
+        "confusion",
+        "curiosity",
+        "desire",
+        "disappointment",
+        "disapproval",
+        "disgust",
+        "embarrassment",
+        "excitement",
+        "fear",
+        "gratitude",
+        "grief",
+        "joy",
+        "love",
+        "nervousness",
+        "optimism",
+        "pride",
+        "realization",
+        "relief",
+        "remorse",
+        "sadness",
+        "surprise",
+        "trust",
+    }
+    tokens = [t for t in re.split(r"[\s,\[\]\(\)\{\}:;,.!?\n\r\t]+", text) if t]
+    emotion_tokens = [t for t in tokens if t in allowed]
+    non_emotion_tokens = [t for t in tokens if t not in allowed]
+    if len(emotion_tokens) >= 2 and len(non_emotion_tokens) <= 4:
+        return True
+
+    if len(tokens) <= 12 and tokens and all(t in allowed for t in tokens):
+        return True
+    return False
 
 
 def _payload_has_prompt_scaffold(value):
@@ -1690,14 +1738,14 @@ def add_comment():
         else:
             text = text.replace(mention, "")
 
-            # update post
-            post.tweet = text.lstrip().rstrip()
+            # update the new comment, not the parent post
+            new_post.tweet = text.lstrip().rstrip()
 
             # more than one word
-            if len(post.tweet.split(" ")) > 1:
+            if len(new_post.tweet.split(" ")) > 1:
                 db.session.commit()
             else:
-                db.session.delete(post)
+                db.session.delete(new_post)
                 db.session.commit()
 
     return json.dumps({"status": 200, "comment_id": new_post.id, "deduped": False})

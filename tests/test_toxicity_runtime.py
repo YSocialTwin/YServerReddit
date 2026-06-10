@@ -113,3 +113,24 @@ def test_reddit_routes_use_annotation_helpers():
 
     assert "should_annotate_sentiment(app.config)" in image_post_text
     assert "should_annotate_emotions(app.config)" in image_post_text
+
+
+def test_comment_cleanup_updates_new_post_not_parent():
+    from pathlib import Path
+
+    content_text = Path(
+        "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/content_management.py"
+    ).read_text(encoding="utf-8")
+
+    assert "new_post.tweet = text.lstrip().rstrip()" in content_text
+    assert "db.session.delete(new_post)" in content_text
+    assert "post.tweet = text.lstrip().rstrip()" in content_text
+
+
+def test_content_management_sanitizes_emotion_payloads():
+    content_text = Path(
+        "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/content_management.py"
+    ).read_text(encoding="utf-8")
+
+    assert "_looks_like_emotion_payload" in content_text
+    assert "cleaned = \"\"" in content_text
