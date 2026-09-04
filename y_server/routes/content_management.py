@@ -1445,10 +1445,10 @@ def add_post():
     data = json.loads(request.get_data())
     account_id = data["user_id"]
     text = data["tweet"].strip('"')
-    emotions = data["emotions"]
-    hastags = data["hashtags"]
-    mentions = data["mentions"]
-    topics = data["topics"]
+    emotions = data.get("emotions") or []
+    hastags = data.get("hashtags") or []
+    mentions = data.get("mentions") or []
+    topics = data.get("topics") or []
     tid = int(data["tid"])
 
     user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
