@@ -1,3 +1,4 @@
+from sqlalchemy import select
 import json
 import re
 from flask import request
@@ -95,10 +96,10 @@ def comment_news():
     category = data["category"]
     fetched_on = data["fetched_on"]
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
 
     # check if website exists
-    website = Websites.query.filter_by(rss=rss).first()
+    website = db.session.scalars(select(Websites).filter_by(rss=rss)).first()
     if website is None:
         website = Websites(
             name=publisher,
@@ -112,10 +113,10 @@ def comment_news():
         db.session.add(website)
         db.session.commit()
 
-    website_id = Websites.query.filter_by(rss=rss).first().id
+    website_id = db.session.scalars(select(Websites).filter_by(rss=rss)).first().id
 
     # check if article exists
-    article = Articles.query.filter_by(link=link, website_id=website_id).first()
+    article = db.session.scalars(select(Articles).filter_by(link=link, website_id=website_id)).first()
     if article is None:
         article = Articles(
             title=title,
@@ -126,29 +127,29 @@ def comment_news():
         )
         db.session.add(article)
         db.session.commit()
-    article_id = Articles.query.filter_by(link=link, website_id=website_id).first().id
+    article_id = db.session.scalars(select(Articles).filter_by(link=link, website_id=website_id)).first().id
 
     # Handle image_url if provided
     image_url = data.get("image_url")
     image_id = None
     if image_url:
         # Check if image already exists for this article
-        existing_image = Images.query.filter_by(article_id=article_id).first()
+        existing_image = db.session.scalars(select(Images).filter_by(article_id=article_id)).first()
         if existing_image is None:
             # Also check if image URL already exists (avoid duplicates)
-            if Images.query.filter_by(url=image_url).first() is None:
+            if db.session.scalars(select(Images).filter_by(url=image_url)).first() is None:
                 image = Images(url=image_url, article_id=article_id)
                 db.session.add(image)
                 db.session.commit()
                 image_id = image.id
             else:
                 # Image URL exists, get its ID
-                image_id = Images.query.filter_by(url=image_url).first().id
+                image_id = db.session.scalars(select(Images).filter_by(url=image_url)).first().id
         else:
             image_id = existing_image.id
     else:
         # No image_url provided, check if article already has an image
-        existing_image = Images.query.filter_by(article_id=article_id).first()
+        existing_image = db.session.scalars(select(Images).filter_by(article_id=article_id)).first()
         if existing_image:
             image_id = existing_image.id
 
@@ -160,12 +161,12 @@ def comment_news():
         # Idempotency for link shares: prevent accidental double-posting of the same link
         # by the same user within the same round.
         if data.get("is_share_link"):
-            existing = Post.query.filter_by(
+            existing = db.session.scalars(select(Post).filter_by(
                 user_id=user.id,
                 round=tid,
                 comment_to=-1,
                 news_id=article_id,
-            ).first()
+            )).first()
             if existing is not None:
                 return json.dumps(
                     {
@@ -196,7 +197,7 @@ def comment_news():
                 if len(emotion) < 1:
                     continue
 
-                em = Emotions.query.filter_by(emotion=emotion).first()
+                em = db.session.scalars(select(Emotions).filter_by(emotion=emotion)).first()
                 if em is not None:
                     post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
                     db.session.add(post_emotion)
@@ -206,12 +207,12 @@ def comment_news():
             if len(tag) < 4:
                 continue
 
-            ht = Hashtags.query.filter_by(hashtag=tag).first()
+            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
             if ht is None:
                 ht = Hashtags(hashtag=tag)
                 db.session.add(ht)
                 db.session.commit()
-                ht = Hashtags.query.filter_by(hashtag=tag).first()
+                ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
 
             post_tag = Post_hashtags(post_id=post.id, hashtag_id=ht.id)
             db.session.add(post_tag)
@@ -221,7 +222,7 @@ def comment_news():
             if len(mention) < 1:
                 continue
 
-            us = User_mgmt.query.filter_by(username=mention.strip("@")).first()
+            us = db.session.scalars(select(User_mgmt).filter_by(username=mention.strip("@"))).first()
             if us is not None:
                 mention = Mentions(user_id=us.id, post_id=post.id, round=tid)
                 db.session.add(mention)
@@ -236,17 +237,17 @@ def comment_news():
             if len(topic) < 1:
                 continue
 
-            interests = Interests.query.filter_by(interest=topic).first()
+            interests = db.session.scalars(select(Interests).filter_by(interest=topic)).first()
             if interests is None:
                 interests = Interests(interest=topic)
                 db.session.add(interests)
                 db.session.commit()
 
-            interests = Interests.query.filter_by(interest=topic).first()
+            interests = db.session.scalars(select(Interests).filter_by(interest=topic)).first()
 
-            at = Article_topics.query.filter_by(
+            at = db.session.scalars(select(Article_topics).filter_by(
                 article_id=article_id, topic_id=interests.iid
-            ).first()
+            )).first()
             if at is None:
                 at = Article_topics(article_id=article_id, topic_id=interests.iid)
                 db.session.add(at)
@@ -286,7 +287,7 @@ def article_by_title():
     title = data["title"]
 
     # get article from title
-    article = Articles.query.filter_by(title=title).first()
+    article = db.session.scalars(select(Articles).filter_by(title=title)).first()
     if article is not None:
         return json.dumps({"article_id": article.news_id})
     else:
@@ -307,8 +308,8 @@ def get_article():
     post_id = data["post_id"]
 
     # get article from post_id
-    article = Post.query.filter_by(id=post_id).first().news_id
-    article = Articles.query.filter_by(id=article).first()
+    article = db.session.scalars(select(Post).filter_by(id=post_id)).first().news_id
+    article = db.session.scalars(select(Articles).filter_by(id=article)).first()
     if article is not None:
         return json.dumps({"summary": article.summary, "title": article.title})
     else:
@@ -344,14 +345,14 @@ def share():
     mentions = data["mentions"]
     tid = int(data["tid"])
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
-    original_post = Post.query.filter_by(id=post_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
+    original_post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
 
     # Check if user already shared this post (deduplication)
-    existing_share = Post.query.filter_by(
+    existing_share = db.session.scalars(select(Post).filter_by(
         user_id=user.id,
         shared_from=post_id
-    ).first()
+    )).first()
     if existing_share:
         return json.dumps({"status": 200, "message": "Already shared", "id": existing_share.id})
 
@@ -373,9 +374,9 @@ def share():
         toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)
     sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
-    topics = Post_topics.query.filter_by(post_id=post_id).all()
+    topics = db.session.scalars(select(Post_topics).filter_by(post_id=post_id)).all()
 
-    sentiment_parent = Post_Sentiment.query.filter_by(post_id=post_id).first()
+    sentiment_parent = db.session.scalars(select(Post_Sentiment).filter_by(post_id=post_id)).first()
     if sentiment_parent is not None:
         sentiment_parent = sentiment_parent.compound
         # thresholding
@@ -410,7 +411,7 @@ def share():
             if len(emotion) < 1:
                 continue
 
-            em = Emotions.query.filter_by(emotion=emotion).first()
+            em = db.session.scalars(select(Emotions).filter_by(emotion=emotion)).first()
             if em is not None:
                 post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
                 db.session.add(post_emotion)
@@ -420,12 +421,12 @@ def share():
         if len(tag) < 1:
             continue
 
-        ht = Hashtags.query.filter_by(hashtag=tag).first()
+        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = Hashtags.query.filter_by(hashtag=tag).first()
+            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
 
         post_tag = Post_hashtags(post_id=post.id, hashtag_id=ht.id)
         db.session.add(post_tag)
@@ -435,7 +436,7 @@ def share():
         if len(mention) < 1:
             continue
 
-        us = User_mgmt.query.filter_by(username=mention.strip("@")).first()
+        us = db.session.scalars(select(User_mgmt).filter_by(username=mention.strip("@"))).first()
         if us is not None:
             mention = Mentions(user_id=us.id, post_id=post.id, round=tid)
             db.session.add(mention)

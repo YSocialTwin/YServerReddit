@@ -1,3 +1,4 @@
+from sqlalchemy import select
 import json
 
 from flask import request
@@ -40,11 +41,11 @@ def create_image_post():
     if len(text) < 3:
         return json.dumps({"status": 400, "error": "empty_post"})
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
     if user is None:
         return json.dumps({"status": 404, "error": "User not found"})
 
-    image_post = ImagePosts.query.filter_by(url=image_url).first()
+    image_post = db.session.scalars(select(ImagePosts).filter_by(url=image_url)).first()
     if image_post is None:
         image_post = ImagePosts(
             url=image_url,
@@ -81,7 +82,7 @@ def create_image_post():
         for emotion in emotions:
             if len(emotion) < 1:
                 continue
-            em = Emotions.query.filter_by(emotion=emotion).first()
+            em = db.session.scalars(select(Emotions).filter_by(emotion=emotion)).first()
             if em is not None:
                 db.session.add(Post_emotions(post_id=post.id, emotion_id=em.id))
                 db.session.commit()
@@ -89,19 +90,19 @@ def create_image_post():
     for tag in hashtags:
         if len(tag) < 4:
             continue
-        ht = Hashtags.query.filter_by(hashtag=tag).first()
+        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = Hashtags.query.filter_by(hashtag=tag).first()
+            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
         db.session.add(Post_hashtags(post_id=post.id, hashtag_id=ht.id))
         db.session.commit()
 
     for mention in mentions:
         if len(mention) < 1:
             continue
-        us = User_mgmt.query.filter_by(username=mention.strip("@")).first()
+        us = db.session.scalars(select(User_mgmt).filter_by(username=mention.strip("@"))).first()
         if us is not None:
             db.session.add(Mentions(user_id=us.id, post_id=post.id, round=tid))
             db.session.commit()
@@ -111,12 +112,12 @@ def create_image_post():
         for topic in topics:
             if len(topic) < 1:
                 continue
-            interest = Interests.query.filter_by(interest=topic).first()
+            interest = db.session.scalars(select(Interests).filter_by(interest=topic)).first()
             if interest is None:
                 interest = Interests(interest=topic)
                 db.session.add(interest)
                 db.session.commit()
-                interest = Interests.query.filter_by(interest=topic).first()
+                interest = db.session.scalars(select(Interests).filter_by(interest=topic)).first()
 
             db.session.add(Post_topics(post_id=post.id, topic_id=interest.iid))
             if sentiment is not None:
@@ -146,11 +147,11 @@ def get_image_post():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
     if post is None or post.image_post_id is None:
         return json.dumps({"status": 404, "error": "Image post not found"})
 
-    image_post = ImagePosts.query.filter_by(id=post.image_post_id).first()
+    image_post = db.session.scalars(select(ImagePosts).filter_by(id=post.image_post_id)).first()
     if image_post is None:
         return json.dumps({"status": 404, "error": "Image not found"})
 

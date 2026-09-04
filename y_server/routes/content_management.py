@@ -15,7 +15,7 @@ from y_server.utils import (
     get_posts_by_reactions,
     get_posts_by_author,
 )
-from sqlalchemy import desc, inspect, select, text
+from sqlalchemy import desc, inspect, select, text, func, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.expression import func
 from y_server.modals import (
@@ -83,7 +83,7 @@ def _resolve_thread_root_id(post):
             return current_id
         if comment_to == -1:
             return current_id
-        current = Post.query.filter_by(id=comment_to).first()
+        current = db.session.scalars(select(Post).filter_by(id=comment_to)).first()
     return None
 
 
@@ -285,7 +285,7 @@ def _get_active_system_messages_for_user(user_id, round_id):
     if user_id is None:
         return []
 
-    messages = SysMessage.query.filter_by(to_uid=int(user_id)).all()
+    messages = db.session.scalars(select(SysMessage).filter_by(to_uid=int(user_id))).all()
     active = []
     for message in messages:
         if not _message_active_for_round(message, round_id):
@@ -311,7 +311,7 @@ def get_active_system_messages():
     round_id = data.get("tid")
 
     if round_id is None:
-        current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+        current_round = db.session.scalars(select(Rounds).order_by(desc(Rounds.id))).first()
         round_id = current_round.id if current_round is not None else None
 
     return json.dumps(_get_active_system_messages_for_user(user_id, round_id))
@@ -528,7 +528,7 @@ def _build_user_map(user_ids):
 
     out = {}
     try:
-        rows = User_mgmt.query.filter(User_mgmt.id.in_(sorted(ids))).all()
+        rows = db.session.scalars(select(User_mgmt).filter(User_mgmt.id.in_(sorted(ids)))).all()
     except Exception:
         return out
 
@@ -679,11 +679,8 @@ def _estimate_importance(
         topic_list = [topics.strip().lower()]
 
     if topic_list:
-        digest = (
-            MemoryCommunityDigest.query.filter_by(run_id=run_id)
-            .order_by(desc(MemoryCommunityDigest.id))
-            .first()
-        )
+        digest = db.session.scalars(select(MemoryCommunityDigest).filter_by(run_id=run_id)
+            .order_by(desc(MemoryCommunityDigest.id))).first()
         if digest is not None:
             polarizing = _json_loads_maybe(digest.polarizing_issues_json)
             if isinstance(polarizing, list):
@@ -771,12 +768,11 @@ def _memory_indexer_loop():
     while True:
         try:
             with app.app_context():
-                pending = (
-                    MemoryItem.query.filter(MemoryItem.embedding_status == "pending")
+                pending = db.session.scalars(
+                    select(MemoryItem).filter(MemoryItem.embedding_status == "pending")
                     .order_by(MemoryItem.id)
                     .limit(32)
-                    .all()
-                )
+                ).all()
 
                 if not pending:
                     time.sleep(1.5)
@@ -880,27 +876,27 @@ def read():
     if "article" in data:
         articles = True
         # get the user
-        us = User_mgmt.query.filter_by(id=uid).first()
+        us = db.session.scalars(select(User_mgmt).filter_by(id=uid)).first()
         # get news pages ids having the same user leaning
-        pages = User_mgmt.query.filter_by(is_page=1, leaning=us.leaning).all()
+        pages = db.session.scalars(select(User_mgmt).filter_by(is_page=1, leaning=us.leaning)).all()
         if pages is not None:
             pages = [x.id for x in pages]
         else:
             pages = []
 
     # visibility
-    current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+    current_round = db.session.scalars(select(Rounds).order_by(desc(Rounds.id))).first()
     visibility = current_round.id - vround
 
     def _base_posts_query(*, top_level_only=False):
         if articles:
-            q = Post.query.filter(
+            q = select(Post).filter(
                 Post.round >= visibility,
                 Post.news_id.isnot(None),
                 Post.user_id.in_(pages),
             )
         else:
-            q = Post.query.filter(Post.round >= visibility)
+            q = select(Post).filter(Post.round >= visibility)
             if uid is not None:
                 q = q.filter(Post.user_id != uid)
         if top_level_only:
@@ -1008,13 +1004,13 @@ def read():
             additional_posts_limit = 0
 
         # get followers
-        follower = Follow.query.filter_by(action="follow", user_id=uid)
+        follower = db.session.scalars(select(Follow).filter_by(action="follow", user_id=uid)).all()
         follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
 
         # get posts from followers in reverse chronological order
         if articles:
-            posts = (
-                Post.query.filter(
+            posts = db.session.scalars(
+                select(Post).filter(
                     Post.round >= visibility,
                     Post.news_id.isnot(None),
                     Post.user_id.in_(pages),
@@ -1024,8 +1020,8 @@ def read():
                 .limit(follower_posts_limit)
             ).all()
         else:
-            posts = (
-                Post.query.filter(
+            posts = db.session.scalars(
+                select(Post).filter(
                     Post.round >= visibility, Post.user_id.in_(follower_ids)
                 )
                 .order_by(desc(Post.id))
@@ -1034,8 +1030,8 @@ def read():
 
         if additional_posts_limit != 0:
             if articles:
-                additional_posts = (
-                    Post.query.filter(
+                additional_posts = db.session.scalars(
+                    select(Post).filter(
                         Post.round >= visibility,
                         Post.news_id.isnot(None),
                         Post.user_id != uid,
@@ -1044,8 +1040,8 @@ def read():
                     .limit(additional_posts_limit)
                 ).all()
             else:
-                additional_posts = (
-                    Post.query.filter(Post.round >= visibility, Post.user_id != uid)
+                additional_posts = db.session.scalars(
+                    select(Post).filter(Post.round >= visibility, Post.user_id != uid)
                     .order_by(desc(Post.id))
                     .limit(additional_posts_limit)
                 ).all()
@@ -1061,7 +1057,7 @@ def read():
             additional_posts_limit = 0
 
         # get followers
-        follower = Follow.query.filter_by(action="follow", user_id=uid)
+        follower = db.session.scalars(select(Follow).filter_by(action="follow", user_id=uid)).all()
         follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
 
         # get posts from followers ordered by likes and reverse chronologically
@@ -1086,8 +1082,8 @@ def read():
 
         if additional_posts_limit != 0:
             if articles:
-                additional_posts = (
-                    Post.query.filter(
+                additional_posts = db.session.scalars(
+                    select(Post).filter(
                         Post.round >= visibility,
                         Post.news_id.isnot(None),
                         Post.user_id.in_(pages),
@@ -1099,8 +1095,8 @@ def read():
                     .limit(additional_posts_limit)
                 ).all()
             else:
-                additional_posts = (
-                    Post.query.filter(Post.round >= visibility, Post.user_id != uid)
+                additional_posts = db.session.scalars(
+                    select(Post).filter(Post.round >= visibility, Post.user_id != uid)
                     .order_by(desc(Post.id), desc(Post.reaction_count))
                     .limit(additional_posts_limit)
                 ).all()
@@ -1110,12 +1106,11 @@ def read():
     elif mode == "top":
         # Reddit-style top ranking (net vote score), threads only.
         candidate_limit = min(4000, max(int(limit) * 12, 400))
-        candidates = (
+        candidates = db.session.scalars(
             _base_posts_query(top_level_only=True)
             .order_by(desc(Post.id))
             .limit(candidate_limit)
-            .all()
-        )
+        ).all()
         reaction_map = _reaction_map_for_posts([p.id for p in candidates])
         ranked = []
         for p in candidates:
@@ -1160,12 +1155,11 @@ def read():
             j2 = _HOT_LONGTAIL_J2
 
         candidate_limit = min(4000, max(int(limit) * 12, 400))
-        candidates = (
+        candidates = db.session.scalars(
             _base_posts_query(top_level_only=True)
             .order_by(desc(Post.id))
             .limit(candidate_limit)
-            .all()
-        )
+        ).all()
         reaction_map = _reaction_map_for_posts([p.id for p in candidates])
         current_round_id = int(current_round.id) if current_round is not None else 0
         viewer_id = int(uid) if uid is not None else -1
@@ -1192,12 +1186,11 @@ def read():
     elif mode == "most_commented":
         # Rank threads by number of comments.
         candidate_limit = min(4000, max(int(limit) * 12, 400))
-        candidates = (
+        candidates = db.session.scalars(
             _base_posts_query(top_level_only=True)
             .order_by(desc(Post.id))
             .limit(candidate_limit)
-            .all()
-        )
+        ).all()
         thread_ids = [int(p.thread_id or p.id) for p in candidates]
         comment_map = _comment_count_map(thread_ids)
         ranked = []
@@ -1291,8 +1284,8 @@ def read():
     else:
         # get posts in random order
         if articles:
-            posts = (
-                Post.query.filter(
+            posts = db.session.scalars(
+                select(Post).filter(
                     Post.round >= visibility,
                     Post.news_id.isnot(None),
                     Post.user_id.in_(pages),
@@ -1302,8 +1295,8 @@ def read():
             ).all()
 
         else:
-            posts = (
-                Post.query.filter(Post.round >= visibility, Post.user_id != uid)
+            posts = db.session.scalars(
+                select(Post).filter(Post.round >= visibility, Post.user_id != uid)
                 .order_by(func.random())
                 .limit(limit)
             ).all()
@@ -1328,7 +1321,7 @@ def read():
                     res.append(post_type.id)
 
     # save recommendations
-    current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+    current_round = db.session.scalars(select(Rounds).order_by(desc(Rounds.id))).first()
     current_round_id = current_round.id if current_round is not None else None
     res = _filter_shadow_banned_post_ids(res, current_round_id)
     if len(res) > 0:
@@ -1354,7 +1347,7 @@ def search():
     vround = int(data["visibility_rounds"])
 
     # visibility
-    current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+    current_round = db.session.scalars(select(Rounds).order_by(desc(Rounds.id))).first()
     visibility = current_round.id - vround
 
     # Subquery for user's recent posts (can return multiple rows)
@@ -1369,9 +1362,9 @@ def search():
     ).subquery()
 
     # Get matching hashtags using .in_() instead of == with scalar_subquery
-    recent_user_hashtags = Hashtags.query.filter(
-        Hashtags.id.in_(db.session.query(hashtags_subq.c.hashtag_id))
-    ).limit(10)
+    recent_user_hashtags = db.session.scalars(select(Hashtags).filter(
+        Hashtags.id.in_(db.session.scalars(select(hashtags_subq.c.hashtag_id)))
+    ).limit(10)).all()
 
     if recent_user_hashtags is not None:
         hashtag_ids = []
@@ -1414,18 +1407,17 @@ def read_mention():
     vround = int(data["visibility_rounds"])
 
     # visibility
-    current_round = Rounds.query.order_by(desc(Rounds.id)).first()
+    current_round = db.session.scalars(select(Rounds).order_by(desc(Rounds.id))).first()
     visibility = current_round.id - vround
 
-    mention_candidates = (
-        Mentions.query.filter(
+    mention_candidates = db.session.scalars(
+        select(Mentions).filter(
             Mentions.user_id == uid,
             Mentions.round >= visibility,
             Mentions.answered == 0,
         )
         .order_by(func.random())
-        .all()
-    )
+    ).all()
 
     mention = None
     for candidate in mention_candidates:
@@ -1459,7 +1451,7 @@ def add_post():
     topics = data["topics"]
     tid = int(data["tid"])
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
 
     text = text.strip("-")
     text = _sanitize_generated_text(text, max_len=4000)
@@ -1508,7 +1500,7 @@ def add_post():
             if len(emotion) < 1:
                 continue
 
-            em = Emotions.query.filter_by(emotion=emotion).first()
+            em = db.session.scalars(select(Emotions).filter_by(emotion=emotion)).first()
             if em is not None:
                 post_emotion = Post_emotions(post_id=post.id, emotion_id=em.id)
                 db.session.add(post_emotion)
@@ -1518,12 +1510,12 @@ def add_post():
         if len(tag) < 4:
             continue
 
-        ht = Hashtags.query.filter_by(hashtag=tag).first()
+        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = Hashtags.query.filter_by(hashtag=tag).first()
+            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
 
         post_tag = Post_hashtags(post_id=post.id, hashtag_id=ht.id)
         db.session.add(post_tag)
@@ -1533,7 +1525,7 @@ def add_post():
         if len(mention) < 1:
             continue
 
-        us = User_mgmt.query.filter_by(username=mention.strip("@")).first()
+        us = db.session.scalars(select(User_mgmt).filter_by(username=mention.strip("@"))).first()
 
         # existing user and not self
         if us is not None and us.id != user.id:
@@ -1570,8 +1562,8 @@ def add_comment():
     tid = int(data["tid"])
     client_action_id = str(data.get("client_action_id") or "").strip()[:96] or None
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
-    post = Post.query.filter_by(id=post_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
 
     text = text.strip("-")
     text = _sanitize_generated_text(text, max_len=4000)
@@ -1584,10 +1576,10 @@ def add_comment():
 
     # Request-level idempotency token guard.
     if client_action_id:
-        existing = Post.query.filter_by(
+        existing = db.session.scalars(select(Post).filter_by(
             user_id=user.id,
             client_action_id=client_action_id,
-        ).first()
+        )).first()
         if existing is not None:
             app.logger.info(
                 "comment_deduped",
@@ -1603,12 +1595,12 @@ def add_comment():
 
     # Same-parent/same-round/same-text guard (policy: allow if text differs).
     if dedupe_key:
-        existing = Post.query.filter_by(
+        existing = db.session.scalars(select(Post).filter_by(
             user_id=user.id,
             comment_to=post_id,
             round=tid,
             dedupe_key=dedupe_key,
-        ).first()
+        )).first()
         if existing is not None:
             app.logger.info(
                 "comment_deduped",
@@ -1640,17 +1632,17 @@ def add_comment():
         db.session.rollback()
         existing = None
         if client_action_id:
-            existing = Post.query.filter_by(
+            existing = db.session.scalars(select(Post).filter_by(
                 user_id=user.id,
                 client_action_id=client_action_id,
-            ).first()
+            )).first()
         if existing is None and dedupe_key:
-            existing = Post.query.filter_by(
+            existing = db.session.scalars(select(Post).filter_by(
                 user_id=user.id,
                 comment_to=post_id,
                 round=tid,
                 dedupe_key=dedupe_key,
-            ).first()
+            )).first()
         if existing is not None:
             app.logger.info(
                 "comment_deduped",
@@ -1666,7 +1658,7 @@ def add_comment():
         return json.dumps({"status": 500, "error": "comment create conflict"}), 500
 
     # get sentiment of the post is responding to
-    sentiment_parent = Post_Sentiment.query.filter_by(post_id=post_id).first()
+    sentiment_parent = db.session.scalars(select(Post_Sentiment).filter_by(post_id=post_id)).first()
     if sentiment_parent is not None:
         sentiment_parent = sentiment_parent.compound
         # thresholding
@@ -1684,7 +1676,7 @@ def add_comment():
     sentiment = vader_sentiment(text) if should_annotate_sentiment(app.config) else None
 
     # get topics associated to post.id
-    post_topics = Post_topics.query.filter_by(post_id=thread_root_id).all()
+    post_topics = db.session.scalars(select(Post_topics).filter_by(post_id=thread_root_id)).all()
     for topic in post_topics:
         db.session.add(Post_topics(post_id=new_post.id, topic_id=topic.topic_id))
         db.session.commit()
@@ -1709,7 +1701,7 @@ def add_comment():
             if len(emotion) < 1:
                 continue
 
-            em = Emotions.query.filter_by(emotion=emotion).first()
+            em = db.session.scalars(select(Emotions).filter_by(emotion=emotion)).first()
             if em is not None:
                 post_emotion = Post_emotions(post_id=new_post.id, emotion_id=em.id)
                 db.session.add(post_emotion)
@@ -1719,12 +1711,12 @@ def add_comment():
         if len(tag) < 1:
             continue
 
-        ht = Hashtags.query.filter_by(hashtag=tag).first()
+        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = Hashtags.query.filter_by(hashtag=tag).first()
+            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
 
         post_tag = Post_hashtags(post_id=new_post.id, hashtag_id=ht.id)
         db.session.add(post_tag)
@@ -1734,7 +1726,7 @@ def add_comment():
         if len(mention) < 1:
             continue
 
-        us = User_mgmt.query.filter_by(username=mention.strip("@")).first()
+        us = db.session.scalars(select(User_mgmt).filter_by(username=mention.strip("@"))).first()
         if us is not None:
             mn = Mentions(user_id=us.id, post_id=new_post.id, round=tid)
             db.session.add(mn)
@@ -1773,24 +1765,24 @@ def post_thread():
     except (TypeError, ValueError):
         return json.dumps({"status": 400, "error": "Invalid post_id"})
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
     if post is None:
         return json.dumps({"status": 404, "error": "Post not found"})
 
     thread_root_id = _resolve_thread_root_id(post)
-    thread_id = Post.query.filter_by(thread_id=thread_root_id)
+    thread_id = db.session.scalars(select(Post).filter_by(thread_id=thread_root_id)).all()
 
     res = []
 
     for post in thread_id:
         user = post.user_id
-        username = User_mgmt.query.filter_by(id=user).first().username
+        username = db.session.scalars(select(User_mgmt).filter_by(id=user)).first().username
 
         text = post.tweet
         # Include standalone image description for better agent context.
         try:
             if getattr(post, "image_post_id", None) is not None:
-                image_post = ImagePosts.query.filter_by(id=post.image_post_id).first()
+                image_post = db.session.scalars(select(ImagePosts).filter_by(id=post.image_post_id)).first()
                 if image_post and image_post.description:
                     text = f"[Image: {image_post.description}] {text}"
         except Exception:
@@ -1829,7 +1821,7 @@ def get_thread_tree():
     if limit > 2000:
         limit = 2000
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
     if post is None:
         return json.dumps({"status": 404, "error": "Post not found"}), 404
 
@@ -1848,7 +1840,7 @@ def get_thread_tree():
         text = p.tweet
         try:
             if getattr(p, "image_post_id", None) is not None:
-                image_post = ImagePosts.query.filter_by(id=p.image_post_id).first()
+                image_post = db.session.scalars(select(ImagePosts).filter_by(id=p.image_post_id)).first()
                 if image_post and image_post.description:
                     text = f"[Image: {image_post.description}] {text}"
         except Exception:
@@ -1915,11 +1907,11 @@ def memory_reset():
     if not run_id:
         return json.dumps({"status": 400, "error": "run_id required"}), 400
 
-    MemoryInteractionEvent.query.filter_by(run_id=run_id).delete()
-    MemoryItem.query.filter_by(run_id=run_id).delete()
-    MemorySocialCard.query.filter_by(run_id=run_id).delete()
-    MemoryThreadCard.query.filter_by(run_id=run_id).delete()
-    MemoryCommunityDigest.query.filter_by(run_id=run_id).delete()
+    db.session.execute(delete(MemoryInteractionEvent).filter_by(run_id=run_id))
+    db.session.execute(delete(MemoryItem).filter_by(run_id=run_id))
+    db.session.execute(delete(MemorySocialCard).filter_by(run_id=run_id))
+    db.session.execute(delete(MemoryThreadCard).filter_by(run_id=run_id))
+    db.session.execute(delete(MemoryCommunityDigest).filter_by(run_id=run_id))
     db.session.commit()
 
     return json.dumps({"status": 200})
@@ -2068,9 +2060,9 @@ def memory_event():
     db.session.add(ev)
     db.session.flush()
 
-    interaction_event_count = MemoryInteractionEvent.query.filter_by(
+    interaction_event_count = db.session.scalar(select(func.count()).select_from(MemoryInteractionEvent).filter_by(
         run_id=run_id, actor_user_id=actor_user_id
-    ).count()
+    ))
 
     # Cold-start tracking is count-based and inclusive:
     # window=5 => interactions 1..5 are cold start, interaction 6 starts decay level 1.
@@ -2115,9 +2107,9 @@ def memory_event():
     db.session.flush()
 
     # Compatibility/debug metric: total memory item count (not used for cold-start)
-    agent_item_count = MemoryItem.query.filter_by(
+    agent_item_count = db.session.scalar(select(func.count()).select_from(MemoryItem).filter_by(
         run_id=run_id, agent_user_id=actor_user_id
-    ).count()
+    ))
 
     cold_start_importance_cap = None
     if is_cold_start:
@@ -2127,16 +2119,14 @@ def memory_event():
         # after interaction 5 => decay level 1, after 6 => level 2, etc.
         # This reduces early-memory lock-in as the run matures.
         cold_start_importance_cap = max(0.25, 0.70 - (0.08 * cold_start_decay_level))
-        imprinted_items = (
-            MemoryItem.query.filter_by(
+        imprinted_items = db.session.scalars(select(MemoryItem).filter_by(
                 run_id=run_id,
                 agent_user_id=actor_user_id,
                 item_type="event",
             )
             .order_by(MemoryItem.id.asc())
             .limit(int(cold_start_window))
-            .all()
-        )
+        ).all()
         for imprinted in imprinted_items:
             try:
                 current_imp = float(imprinted.importance or 0.0)
@@ -2193,9 +2183,9 @@ def memory_social_upsert():
     except (TypeError, ValueError):
         return json.dumps({"status": 400, "error": "agent_user_id and other_user_id required"}), 400
 
-    card = MemorySocialCard.query.filter_by(
+    card = db.session.scalars(select(MemorySocialCard).filter_by(
         run_id=run_id, agent_user_id=agent_user_id, other_user_id=other_user_id
-    ).first()
+    )).first()
     if card is None:
         card = MemorySocialCard(
             run_id=run_id, agent_user_id=agent_user_id, other_user_id=other_user_id
@@ -2261,9 +2251,9 @@ def memory_thread_upsert():
     except (TypeError, ValueError):
         return json.dumps({"status": 400, "error": "agent_user_id and thread_root_id required"}), 400
 
-    card = MemoryThreadCard.query.filter_by(
+    card = db.session.scalars(select(MemoryThreadCard).filter_by(
         run_id=run_id, agent_user_id=agent_user_id, thread_root_id=thread_root_id
-    ).first()
+    )).first()
     if card is None:
         card = MemoryThreadCard(
             run_id=run_id, agent_user_id=agent_user_id, thread_root_id=thread_root_id
@@ -2329,11 +2319,8 @@ def memory_community_get():
     if not run_id:
         return json.dumps({"status": 400, "error": "run_id required"}), 400
 
-    digest = (
-        MemoryCommunityDigest.query.filter_by(run_id=run_id)
-        .order_by(desc(MemoryCommunityDigest.id))
-        .first()
-    )
+    digest = db.session.scalars(select(MemoryCommunityDigest).filter_by(run_id=run_id)
+        .order_by(desc(MemoryCommunityDigest.id))).first()
     if digest is None:
         return json.dumps({"status": 404}), 404
 
@@ -2366,11 +2353,8 @@ def memory_community_update():
     except Exception:
         round_id = None
 
-    digest = (
-        MemoryCommunityDigest.query.filter_by(run_id=run_id)
-        .order_by(desc(MemoryCommunityDigest.id))
-        .first()
-    )
+    digest = db.session.scalars(select(MemoryCommunityDigest).filter_by(run_id=run_id)
+        .order_by(desc(MemoryCommunityDigest.id))).first()
     if digest is None:
         digest = MemoryCommunityDigest(run_id=run_id)
         db.session.add(digest)
@@ -2496,7 +2480,7 @@ def memory_item_upsert():
 
     item = None
     if item_id is not None:
-        item = MemoryItem.query.filter_by(id=item_id, run_id=run_id, agent_user_id=agent_user_id).first()
+        item = db.session.scalars(select(MemoryItem).filter_by(id=item_id, run_id=run_id, agent_user_id=agent_user_id)).first()
     if item is None:
         item = MemoryItem(run_id=run_id, agent_user_id=agent_user_id, item_type=item_type, text=text_value[:4000])
         db.session.add(item)
@@ -2610,7 +2594,7 @@ def memory_search():
     else:
         topic_tags_filter = None
 
-    q = MemoryItem.query.filter(
+    q = select(MemoryItem).filter(
         MemoryItem.run_id == run_id,
         MemoryItem.agent_user_id == agent_user_id,
         MemoryItem.item_type.in_(types),
@@ -2621,14 +2605,13 @@ def memory_search():
         q = q.filter(MemoryItem.thread_root_id == thread_root_id)
 
     if current_round is None:
-        latest = (
-            MemoryItem.query.filter(
+        latest = db.session.scalars(
+            select(MemoryItem).filter(
                 MemoryItem.run_id == run_id,
                 MemoryItem.agent_user_id == agent_user_id,
             )
             .order_by(desc(MemoryItem.round_id), desc(MemoryItem.id))
-            .first()
-        )
+        ).first()
         if latest is not None and latest.round_id is not None:
             current_round = int(latest.round_id)
 
@@ -2636,7 +2619,7 @@ def memory_search():
         min_round = int(current_round) - int(time_window_rounds)
         q = q.filter((MemoryItem.round_id == None) | (MemoryItem.round_id >= min_round))  # noqa: E711
 
-    candidates = q.order_by(desc(MemoryItem.round_id), desc(MemoryItem.id)).limit(300).all()
+    candidates = db.session.scalars(q.order_by(desc(MemoryItem.round_id), desc(MemoryItem.id)).limit(300)).all()
 
     if topic_tags_filter:
         filtered = []
@@ -2983,7 +2966,7 @@ def memory_get_context():
     pair_rows = []
     if other_user_id is not None:
         q = (
-            MemoryInteractionEvent.query.filter(MemoryInteractionEvent.run_id == run_id)
+            select(MemoryInteractionEvent).filter(MemoryInteractionEvent.run_id == run_id)
             .filter(
                 (
                     (MemoryInteractionEvent.actor_user_id == agent_user_id)
@@ -3015,9 +2998,9 @@ def memory_get_context():
 
     social_card_payload = None
     if other_user_id is not None:
-        sc = MemorySocialCard.query.filter_by(
+        sc = db.session.scalars(select(MemorySocialCard).filter_by(
             run_id=run_id, agent_user_id=agent_user_id, other_user_id=other_user_id
-        ).first()
+        )).first()
         if sc is not None:
             social_card_payload = {
                 "affinity": sc.affinity,
@@ -3036,9 +3019,9 @@ def memory_get_context():
 
     thread_card_payload = None
     if thread_root_id is not None:
-        tc = MemoryThreadCard.query.filter_by(
+        tc = db.session.scalars(select(MemoryThreadCard).filter_by(
             run_id=run_id, agent_user_id=agent_user_id, thread_root_id=thread_root_id
-        ).first()
+        )).first()
         if tc is not None:
             thread_card_payload = {
                 "gist_text": tc.gist_text,
@@ -3049,11 +3032,8 @@ def memory_get_context():
             }
 
     digest_payload = None
-    digest = (
-        MemoryCommunityDigest.query.filter_by(run_id=run_id)
-        .order_by(desc(MemoryCommunityDigest.id))
-        .first()
-    )
+    digest = db.session.scalars(select(MemoryCommunityDigest).filter_by(run_id=run_id)
+        .order_by(desc(MemoryCommunityDigest.id))).first()
     if digest is not None:
         digest_payload = {
             "round_id": digest.round_id,
@@ -3116,13 +3096,13 @@ def memory_events_recent():
         limit = 200
 
     q = (
-        MemoryInteractionEvent.query.filter(MemoryInteractionEvent.run_id == run_id)
+        select(MemoryInteractionEvent).filter(MemoryInteractionEvent.run_id == run_id)
         .order_by(desc(MemoryInteractionEvent.id))
         .limit(limit)
     )
 
     events = []
-    for ev in q.all()[::-1]:
+    for ev in db.session.scalars(q).all()[::-1]:
         events.append(
             {
                 "round_id": ev.round_id,
@@ -3152,17 +3132,17 @@ def get_post_topics_name():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
     topic_post_id = post_id
     if post is not None:
-        direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
+        direct_topics = db.session.scalars(select(Post_topics).filter_by(post_id=post_id)).all()
         if not direct_topics:
             topic_post_id = _resolve_thread_root_id(post)
-    post_topics = Post_topics.query.filter_by(post_id=topic_post_id).all()
+    post_topics = db.session.scalars(select(Post_topics).filter_by(post_id=topic_post_id)).all()
 
     res = []
     for topic in post_topics:
-        tp = Interests.query.filter_by(iid=topic.topic_id).first()
+        tp = db.session.scalars(select(Interests).filter_by(iid=topic.topic_id)).first()
         if tp is not None:
             res.append(tp.interest)
 
@@ -3183,14 +3163,13 @@ def get_sentiment():
     res = []
 
     for interest in interests:
-        topic = Interests.query.filter_by(interest=interest).first()
+        topic = db.session.scalars(select(Interests).filter_by(interest=interest)).first()
         if topic is None:
             continue
-        post_sentiment = (
-            Post_Sentiment.query.filter_by(user_id=user_id, topic_id=topic.iid)
+        post_sentiment = db.session.scalars(
+            select(Post_Sentiment).filter_by(user_id=user_id, topic_id=topic.iid)
             .order_by(desc(Post_Sentiment.id))
-            .first()
-        )
+        ).first()
         if post_sentiment is not None:
             # thresholding compound
             if post_sentiment.compound > 0.05:
@@ -3217,7 +3196,7 @@ def get_post():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
 
     return json.dumps(post.tweet)
 
@@ -3238,7 +3217,7 @@ def add_reaction():
     rtype = data["type"]
     tid = int(data["tid"])
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
 
     react = Reactions(post_id=post_id, user_id=user.id, round=tid, type=rtype)
 
@@ -3249,7 +3228,7 @@ def add_reaction():
         pass
 
     # get compound sentiment of post
-    post_sentiment = Post_Sentiment.query.filter_by(post_id=int(post_id)).all()
+    post_sentiment = db.session.scalars(select(Post_Sentiment).filter_by(post_id=int(post_id))).all()
     for topic_sentiment in post_sentiment:
         topic_id = topic_sentiment.topic_id
         compound = topic_sentiment.compound
@@ -3278,7 +3257,7 @@ def add_reaction():
         db.session.commit()
 
     # increment the post's reaction count
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
     if post is not None:
         post.reaction_count += 1
         db.session.commit()
@@ -3302,8 +3281,8 @@ def report_post():
     if report_type not in {"offensive", "toxic"}:
         return json.dumps({"status": 400, "error": "invalid report type"})
 
-    user = User_mgmt.query.filter_by(id=account_id).first()
-    post = Post.query.filter_by(id=post_id).first()
+    user = db.session.scalars(select(User_mgmt).filter_by(id=account_id)).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
 
     if user is None or post is None:
         return json.dumps({"status": 404})
@@ -3331,14 +3310,14 @@ def get_post_topics():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
     topic_post_id = post_id
     if post is not None:
-        direct_topics = Post_topics.query.filter_by(post_id=post_id).all()
+        direct_topics = db.session.scalars(select(Post_topics).filter_by(post_id=post_id)).all()
         if not direct_topics:
             topic_post_id = _resolve_thread_root_id(post)
 
-    post_topics = Post_topics.query.filter_by(post_id=topic_post_id)
+    post_topics = db.session.scalars(select(Post_topics).filter_by(post_id=topic_post_id)).all()
 
     res = []
     for topic in post_topics:
@@ -3357,7 +3336,7 @@ def get_thread_root():
     data = json.loads(request.get_data())
     post_id = data["post_id"]
 
-    post = Post.query.filter_by(id=post_id).first()
+    post = db.session.scalars(select(Post).filter_by(id=post_id)).first()
 
     if post is None:
         return json.dumps({"status": 404})
