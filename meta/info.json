@@ -2,7 +2,7 @@
   "plugin_name": "YServerReddit",
   "category": "Simulation Runtime Stack",
   "group": "Forum",
-  "description": "Server-side forum simulation runtime for Reddit-like YSocial scenarios.",
+  "description": "Hosts the forum platform the agents interact with (server side).",
   "authors": [
     "YSocialTwin"
   ],
