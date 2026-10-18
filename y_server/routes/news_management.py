@@ -1,4 +1,5 @@
-from sqlalchemy import select
+from y_server.hashtag_text import normalize_hashtag
+from sqlalchemy import select, func
 import json
 import re
 from flask import request
@@ -204,15 +205,16 @@ def comment_news():
                     db.session.commit()
 
         for tag in hastags:
-            if len(tag) < 4:
+            tag = normalize_hashtag(tag)
+            if len(tag) < 3:
                 continue
 
-            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+            ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
             if ht is None:
                 ht = Hashtags(hashtag=tag)
                 db.session.add(ht)
                 db.session.commit()
-                ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+                ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
 
             post_tag = Post_hashtags(post_id=post.id, hashtag_id=ht.id)
             db.session.add(post_tag)
@@ -418,15 +420,16 @@ def share():
                 db.session.commit()
 
     for tag in hastags:
+        tag = normalize_hashtag(tag)
         if len(tag) < 1:
             continue
 
-        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+        ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+            ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
 
         post_tag = Post_hashtags(post_id=post.id, hashtag_id=ht.id)
         db.session.add(post_tag)

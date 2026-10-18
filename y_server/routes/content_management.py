@@ -15,6 +15,7 @@ from y_server.utils import (
     get_posts_by_reactions,
     get_posts_by_author,
 )
+from y_server.hashtag_text import normalize_hashtag
 from sqlalchemy import desc, inspect, select, text, func, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.expression import func
@@ -1507,15 +1508,16 @@ def add_post():
                 db.session.commit()
 
     for tag in hastags:
-        if len(tag) < 4:
+        tag = normalize_hashtag(tag)
+        if len(tag) < 3:
             continue
 
-        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+        ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+            ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
 
         post_tag = Post_hashtags(post_id=post.id, hashtag_id=ht.id)
         db.session.add(post_tag)
@@ -1708,15 +1710,16 @@ def add_comment():
                 db.session.commit()
 
     for tag in hastags:
+        tag = normalize_hashtag(tag)
         if len(tag) < 1:
             continue
 
-        ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+        ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
         if ht is None:
             ht = Hashtags(hashtag=tag)
             db.session.add(ht)
             db.session.commit()
-            ht = db.session.scalars(select(Hashtags).filter_by(hashtag=tag)).first()
+            ht = db.session.scalars(select(Hashtags).filter(func.lower(Hashtags.hashtag) == tag.lower())).first()
 
         post_tag = Post_hashtags(post_id=new_post.id, hashtag_id=ht.id)
         db.session.add(post_tag)
