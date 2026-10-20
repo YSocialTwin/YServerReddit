@@ -4,15 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-Changes made since the last published state of `main`, newest first:
+## [2.1.0] - 2026-10-20
 
-- Docs: README citation updated to the published YSocial reference (Big Data & Society, 2026)
-- get_user_interests: return all topics in the moving window (no top-N truncation)
-- get_user_interests: return per-topic interaction count
-- Hashtags: canonical form without '#', apostrophes and accents kept in the tag, case-insensitive identity
-- about ref
-- i18n: shorter, purpose-oriented plugin descriptions
-- Align requirements with the library versions shipped by YWeb
-- update .gitignore
-- fix: guard hashtags/emotions/mentions/topics against None in add_post
-- deps: migrate to SQLAlchemy 2.x / Flask-SQLAlchemy 3.1.1
+### Added
+- `get_user_interests` returns all the topics of the moving window (no top-N truncation) with the interaction count of each topic.
+- Hashtags in canonical form: no leading `#`, apostrophes and accents kept, case-insensitive identity.
+
+### Changed
+- Migrated to SQLAlchemy 2.x and Flask-SQLAlchemy 3.1.1.
+- Requirements aligned with the library versions shipped by YWeb.
+- Shorter, purpose-oriented plugin description in `meta/info.json`.
+- License: GPL-3.0-only, declared in `LICENSE`, `meta/info.json` and the README.
+- README restructured on the common layout; citation updated to the published YSocial reference (Big Data & Society, 2026).
+
+### Fixed
+- `add_post` guards hashtags, emotions, mentions and topics against `None`.
+- Tests run on an isolated temporary database and with SQLAlchemy 2 compatible fakes.
+
+[Unreleased]: https://github.com/YSocialTwin/YServerReddit/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/YSocialTwin/YServerReddit/releases/tag/v2.1.0
