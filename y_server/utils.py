@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import func, desc, case
+from sqlalchemy import func, desc, case, select
 from y_server.modals import (
     db,
     Post,
@@ -20,7 +20,7 @@ def get_follows(uid):
     :return: a list of followers
     """
     # Get the latest round for each follower-user relationship
-    # res = Follow_status.query.filter_by(user_id=uid).all()
+    # res = db.session.scalars(select(Follow_status).filter_by(user_id=uid)).all()
 
     # get the followers of the user with the given uid
     # Select only follower_id for PostgreSQL compatibility
@@ -197,7 +197,7 @@ def __get_similar_users(uid, limit=10):
     :return: Query result with similar users
     """
     # Fetch target user's features
-    target_user = db.session.query(User_mgmt).filter_by(id=uid).first()
+    target_user = db.session.scalars(select(User_mgmt).filter_by(id=uid)).first()
     if not target_user:
         raise ValueError(f"User with id {uid} does not exist.")
 
@@ -256,11 +256,13 @@ def get_posts_by_author(
     :param user_ids: the user ids
     :return: the posts query result
     """
-    posts = Post.query.filter(
-        Post.user_id.in_(user_ids),
-        Post.round >= visibility,
-        Post.news_id.isnot(None) if articles else True,
-    ).limit(limit)
+    posts = db.session.scalars(
+        select(Post).filter(
+            Post.user_id.in_(user_ids),
+            Post.round >= visibility,
+            Post.news_id.isnot(None) if articles else True,
+        ).limit(limit)
+    )
 
     return posts
 

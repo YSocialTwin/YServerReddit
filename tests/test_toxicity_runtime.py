@@ -86,7 +86,7 @@ def test_wsgi_and_run_config_capture_toxicity_flag(tmp_path):
 def test_reddit_routes_use_annotation_helpers():
     from pathlib import Path
 
-    base = Path("/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes")
+    base = (Path(__file__).resolve().parents[1] / "y_server/routes")
     files = {
         "image_management.py": base / "image_management.py",
         "news_management.py": base / "news_management.py",
@@ -118,9 +118,7 @@ def test_reddit_routes_use_annotation_helpers():
 def test_comment_cleanup_updates_new_post_not_parent():
     from pathlib import Path
 
-    content_text = Path(
-        "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/content_management.py"
-    ).read_text(encoding="utf-8")
+    content_text = (Path(__file__).resolve().parents[1] / "y_server/routes/content_management.py").read_text(encoding="utf-8")
 
     assert "new_post.tweet = text.lstrip().rstrip()" in content_text
     assert "db.session.delete(new_post)" in content_text
@@ -128,9 +126,7 @@ def test_comment_cleanup_updates_new_post_not_parent():
 
 
 def test_content_management_sanitizes_emotion_payloads():
-    content_text = Path(
-        "/Users/rossetti/PycharmProjects/YWeb/external/YServerReddit/y_server/routes/content_management.py"
-    ).read_text(encoding="utf-8")
+    content_text = (Path(__file__).resolve().parents[1] / "y_server/routes/content_management.py").read_text(encoding="utf-8")
 
     assert "_looks_like_emotion_payload" in content_text
     assert "cleaned = \"\"" in content_text

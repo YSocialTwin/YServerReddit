@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from flask import request
 from sqlalchemy.sql.expression import func
 import json
@@ -25,17 +26,16 @@ def add_follow():
     action = data["action"]
     tid = int(data["tid"])
 
-    user_id = User_mgmt.query.filter_by(id=user_id).first()
-    target = User_mgmt.query.filter_by(id=target).first()
+    user_id = db.session.scalars(select(User_mgmt).filter_by(id=user_id)).first()
+    target = db.session.scalars(select(User_mgmt).filter_by(id=target)).first()
 
     # cannot follow yourself
     if user_id.id == target.id:
         return json.dumps({"status": 200})
 
     exiting_rel = (
-        Follow.query.filter_by(user_id=user_id.id, follower_id=target.id)
-        .order_by(Follow.round.desc())
-        .first()
+        db.session.scalars(select(Follow).filter_by(user_id=user_id.id, follower_id=target.id)
+        .order_by(Follow.round.desc())).first()
     )
 
     if exiting_rel is not None:
@@ -67,15 +67,15 @@ def followers():
     data = json.loads(request.get_data())
     user_id = data["user_id"]
 
-    user = User_mgmt.query.filter_by(id=user_id).first()
-    all_followers = Follow.query.filter_by(user_id=user.id)
+    user = db.session.scalars(select(User_mgmt).filter_by(id=user_id)).first()
+    all_followers = db.session.scalars(select(Follow).filter_by(user_id=user.id)).all()
 
     res = []
     for follower in all_followers:
         res.append(
             {
                 "user_id": follower.follower_id,
-                "username": User_mgmt.query.filter_by(id=user_id).first().username,
+                "username": db.session.scalars(select(User_mgmt).filter_by(id=user_id)).first().username,
                 "since": follower.round,
             }
         )
@@ -95,9 +95,8 @@ def check_follow_relationship():
     user_id = int(data["user_id"])
 
     latest = (
-        Follow.query.filter_by(follower_id=follower_id, user_id=user_id)
-        .order_by(Follow.round.desc(), Follow.id.desc())
-        .first()
+        db.session.scalars(select(Follow).filter_by(follower_id=follower_id, user_id=user_id)
+        .order_by(Follow.round.desc(), Follow.id.desc())).first()
     )
 
     is_following = bool(latest and str(latest.action or "").strip().lower() == "follow")
@@ -141,7 +140,7 @@ def __follow_suggestions(rectype, user_id, n_neighbors, leaning_biased):
 
     if rectype == "random":
         # get random users
-        users = User_mgmt.query.order_by(func.random()).limit(n_neighbors)
+        users = db.session.scalars(select(User_mgmt).order_by(func.random()).limit(n_neighbors)).all()
 
         for user in users:
             res[user.id] = 1 / n_neighbors
@@ -197,7 +196,7 @@ def __follow_suggestions(rectype, user_id, n_neighbors, leaning_biased):
         for target in res:
             res[target] = sum(
                 [
-                    1 / np.log(len(Follow.query.filter_by(user_id=neighbor).all()))
+                    1 / np.log(len(db.session.scalars(select(Follow).filter_by(user_id=neighbor)).all()))
                     for neighbor in res[target]
                 ]
             )
@@ -205,7 +204,7 @@ def __follow_suggestions(rectype, user_id, n_neighbors, leaning_biased):
         total = sum([v for v in res.values() if v != np.inf])
         res = {k: v / total for k, v in res.items() if v > 0 and v != np.inf}
 
-    l_source = User_mgmt.query.filter_by(id=user_id).first().leaning
+    l_source = db.session.scalars(select(User_mgmt).filter_by(id=user_id)).first().leaning
     leanings = __get_users_leanings(res.keys())
     for user in res:
         if leanings[user] == l_source:
@@ -228,18 +227,18 @@ def __get_two_hops_neighbors(node_id):
     first_order_followers = set(
         [
             f.follower_id
-            for f in Follow.query.filter_by(user_id=node_id, action="follow")
+            for f in db.session.scalars(select(Follow).filter_by(user_id=node_id, action="follow")).all()
         ]
     )
     # (direct_neighbors, second_order_followers)
-    second_order_followers = Follow.query.filter(
+    second_order_followers = db.session.scalars(select(Follow).filter(
         Follow.user_id.in_(first_order_followers), Follow.action == "follow"
-    )
+    )).all()
     # (second_order_followers, third_order_followers)
-    third_order_followers = Follow.query.filter(
+    third_order_followers = db.session.scalars(select(Follow).filter(
         Follow.user_id.in_([f.follower_id for f in second_order_followers]),
         Follow.action == "follow",
-    )
+    )).all()
 
     candidate_to_follower = {}
     for node in third_order_followers:
@@ -259,5 +258,5 @@ def __get_users_leanings(agents):
     """
     leanings = {}
     for agent in agents:
-        leanings[agent] = User_mgmt.query.filter_by(id=agent).first().leaning
+        leanings[agent] = db.session.scalars(select(User_mgmt).filter_by(id=agent)).first().leaning
     return leanings

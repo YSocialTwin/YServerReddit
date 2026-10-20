@@ -6,7 +6,7 @@ import traceback
 from flask import request
 from logging.handlers import RotatingFileHandler
 from pythonjsonlogger import jsonlogger
-from sqlalchemy import inspect
+from sqlalchemy import delete, inspect
 from sqlalchemy.pool import NullPool
 
 from y_server import app, db, _ensure_comment_dedupe_schema
@@ -227,31 +227,31 @@ def reset_experiment():
     :return: the status of the reset
     """
     SimulationClient.__table__.create(bind=db.engine, checkfirst=True)
-    db.session.query(User_mgmt).delete()
-    db.session.query(Post).delete()
-    db.session.query(Reactions).delete()
-    db.session.query(Follow).delete()
-    db.session.query(Hashtags).delete()
-    db.session.query(Post_hashtags).delete()
-    db.session.query(Post_emotions).delete()
-    db.session.query(Mentions).delete()
-    db.session.query(Rounds).delete()
-    db.session.query(SimulationClient).delete()
-    db.session.query(Recommendations).delete()
-    db.session.query(Websites).delete()
-    db.session.query(Articles).delete()
-    db.session.query(Interests).delete()
-    db.session.query(User_interest).delete()
-    db.session.query(Voting).delete()
-    db.session.query(Post_topics).delete()
-    db.session.query(StressReward).delete()
-    db.session.query(Images).delete()
-    db.session.query(Article_topics).delete()
+    db.session.execute(delete(User_mgmt))
+    db.session.execute(delete(Post))
+    db.session.execute(delete(Reactions))
+    db.session.execute(delete(Follow))
+    db.session.execute(delete(Hashtags))
+    db.session.execute(delete(Post_hashtags))
+    db.session.execute(delete(Post_emotions))
+    db.session.execute(delete(Mentions))
+    db.session.execute(delete(Rounds))
+    db.session.execute(delete(SimulationClient))
+    db.session.execute(delete(Recommendations))
+    db.session.execute(delete(Websites))
+    db.session.execute(delete(Articles))
+    db.session.execute(delete(Interests))
+    db.session.execute(delete(User_interest))
+    db.session.execute(delete(Voting))
+    db.session.execute(delete(Post_topics))
+    db.session.execute(delete(StressReward))
+    db.session.execute(delete(Images))
+    db.session.execute(delete(Article_topics))
     try:
         table_names = set(inspect(db.engine).get_table_names())
     except Exception:
         table_names = set()
     if "agent_opinion" in table_names:
-        db.session.query(Agent_Opinion).delete()
+        db.session.execute(delete(Agent_Opinion))
     db.session.commit()
     return {"status": 200}

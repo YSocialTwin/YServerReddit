@@ -1,3 +1,4 @@
+from sqlalchemy import select
 import json
 import uuid
 
@@ -45,14 +46,13 @@ def get_stress_reward():
 
     for variable in ("stress", "reward"):
         latest_aggregate = (
-            StressReward.query.filter(
+            db.session.scalars(select(StressReward).filter(
                 StressReward.uid == user_id,
                 StressReward.variable == variable,
                 StressReward.type == "aggregate",
                 StressReward.tid < end_tid,
             )
-            .order_by(StressReward.tid.desc())
-            .first()
+            .order_by(StressReward.tid.desc())).first()
         )
 
         anchor_value = 0.0
@@ -75,12 +75,12 @@ def get_stress_reward():
         current_value = clamp(anchor_value + float(variation_sum or 0.0))
         response_payload[variable] = current_value
 
-        existing = StressReward.query.filter_by(
+        existing = db.session.scalars(select(StressReward).filter_by(
             uid=user_id,
             variable=variable,
             type="aggregate",
             tid=end_tid,
-        ).first()
+        )).first()
         if existing is None:
             existing = StressReward(
                 id=str(uuid.uuid4()),
