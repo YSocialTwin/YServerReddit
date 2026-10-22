@@ -137,7 +137,7 @@ def change_db():
             log_dir = os.path.join(cwd, log_dir)
         else:
             # SQLite configuration
-            sqlite_uri = f"sqlite:////{data['path']}"
+            sqlite_uri = f"sqlite:///{os.path.abspath(data['path'])}"
             app.config["SQLALCHEMY_DATABASE_URI"] = sqlite_uri
             app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
             app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
