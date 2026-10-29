@@ -1010,10 +1010,7 @@ def read():
             ordering = (desc(Post.id),)
 
         # followed accounts
-        follower = db.session.scalars(
-            select(Follow).filter_by(action="follow", user_id=uid)
-        ).all()
-        follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
+        follower_ids = get_follows(uid)
 
         def _candidates():
             q = select(Post).filter(Post.round >= visibility, Post.user_id != uid)
@@ -1137,43 +1134,28 @@ def read():
         posts = [p for _, _, p in ranked[:limit]]
 
     elif mode == "rchrono_comments":
-        # get posts with the most comments in reverse chronological order (as longer thread)
-        # Use subquery to get distinct threads - PostgreSQL compatible
-        follower_ids = get_follows(uid)
-
-        # Subquery to get max post id per thread (to get one representative post per thread)
-        subquery = (
-            db.session.query(
-                Post.thread_id,
-                func.max(Post.id).label("max_post_id")
-            )
-            .filter(
-                Post.round >= visibility,
-                Post.news_id.isnot(None) if articles else True,
-                Post.user_id.in_(follower_ids),
-            )
-            .group_by(Post.thread_id)
-            .subquery()
+        # Threads ranked by number of comments (ties: newest first); threads of followed
+        # accounts fill the follower quota, the rest comes from everybody else.
+        follower_ids = set(get_follows(uid))
+        candidate_limit = min(4000, max(int(limit) * 12, 400))
+        candidates = db.session.scalars(
+            _base_posts_query(top_level_only=True)
+            .order_by(desc(Post.id))
+            .limit(candidate_limit)
+        ).all()
+        comment_map = _comment_count_map([int(p.thread_id or p.id) for p in candidates])
+        ranked = sorted(
+            candidates,
+            key=lambda p: (comment_map.get(int(p.thread_id or p.id), 0), int(p.id)),
+            reverse=True,
         )
-
-        posts = [
-            db.session.query(Post)
-            .join(subquery, Post.id == subquery.c.max_post_id)
-            .order_by(desc(Post.reaction_count), desc(Post.id))
-            .limit(follower_posts_limit)
-            .all()
-        ]
-
+        posts = [p for p in ranked if p.user_id in follower_ids][:follower_posts_limit]
         if additional_posts_limit != 0:
-            additional_posts = (
-                db.session.query(Post)
-                .join(subquery, Post.id == subquery.c.max_post_id)
-                .order_by(desc(Post.reaction_count), desc(Post.id))
-                .limit(additional_posts_limit)
-                .all()
-            )
-
-            posts = [posts, additional_posts]
+            taken = {p.id for p in posts}
+            posts = [
+                posts,
+                [p for p in ranked if p.id not in taken][:additional_posts_limit],
+            ]
 
     elif mode == "common_interests":
         # get posts with common topic interests

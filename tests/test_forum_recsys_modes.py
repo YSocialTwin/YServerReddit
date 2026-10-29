@@ -206,3 +206,21 @@ def test_top_and_most_commented(client):
         _seed()
     assert _read(client, "top", limit=3)[:2] == [5, 2]
     assert _read(client, "most_commented", limit=1) == [3]
+
+
+def test_rchrono_comments_ranks_by_comment_count_with_follower_quota(client):
+    with app.app_context():
+        _seed()
+    # thread 3 (author 4) has 2 comments; followed account 2 owns threads 1, 4, 7
+    ids = _read(client, "rchrono_comments", limit=4, followers_ratio=0.5)
+    assert len(ids) == 4 and len(set(ids)) == 4
+    assert ids[:2] == [7, 4]
+    assert ids[2] == 3
+
+
+def test_unfollow_removes_account_from_follower_feed(client):
+    with app.app_context():
+        _seed()
+        _exec("INSERT INTO follow (follower_id, user_id, action, round) VALUES (2, 1, 'unfollow', 5)")
+    ids = _read(client, "rchrono_followers", limit=5, followers_ratio=1)
+    assert ids == []

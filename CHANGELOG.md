@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - `/read`: `limit` is honoured by `rchrono` (it was fixed to 10).
 - `/read`: `rchrono_popularity` and `rchrono_followers_popularity` order by reactions first, then recency (the old `ORDER BY id, reaction_count` made the second key a no-op).
 - `/read`: the followers modes no longer return duplicated posts and share one implementation; the articles branch of `rchrono_followers_popularity` no longer crashes (`.order` typo) and filters by followed accounts.
+- `/read`: `rchrono_comments` ranks threads by comment count with a follower quota (it returned a single post per list and repeated the same threads in the additional quota).
+- `/read`: the followers modes use the follow/unfollow state (`get_follows`), so unfollowed accounts no longer appear.
 - `/read`: the articles mode is enabled by the `articles` key sent by the client (`article` is still accepted).
 - `hot` ranking: the sign applies to the vote term only and recency is always added, so new posts without votes rank by age instead of below any upvoted post.
 - `similar_users_react` / `similar_users_posts`: fixed `case()` calls for SQLAlchemy 2.x and `get_posts_by_author` returning an unmaterialised result.
