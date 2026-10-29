@@ -212,18 +212,18 @@ def __get_similar_users(uid, limit=10):
             (
                 # Categorical exact matches
                 func.sum(
-                    case([(user.leaning == target.leaning, 1)], else_=0)
-                    + case([(user.language == target.language, 1)], else_=0)
+                    case((user.leaning == target.leaning, 1), else_=0)
+                    + case((user.language == target.language, 1), else_=0)
                     + case(
-                        [(user.education_level == target.education_level, 1)], else_=0
+                        (user.education_level == target.education_level, 1), else_=0
                     )
-                    + case([(user.gender == target.gender, 1)], else_=0)
-                    + case([(user.toxicity == target.toxicity, 1)], else_=0)
-                    + case([(user.oe == target.oe, 1)], else_=0)
-                    + case([(user.co == target.co, 1)], else_=0)
-                    + case([(user.ex == target.ex, 1)], else_=0)
-                    + case([(user.ag == target.ag, 1)], else_=0)
-                    + case([(user.ne == target.ne, 1)], else_=0)
+                    + case((user.gender == target.gender, 1), else_=0)
+                    + case((user.toxicity == target.toxicity, 1), else_=0)
+                    + case((user.oe == target.oe, 1), else_=0)
+                    + case((user.co == target.co, 1), else_=0)
+                    + case((user.ex == target.ex, 1), else_=0)
+                    + case((user.ag == target.ag, 1), else_=0)
+                    + case((user.ne == target.ne, 1), else_=0)
                 )
                 # Numeric partial match (age)
                 + (1 - func.abs(user.age - target.age) * age_weight)
@@ -261,8 +261,10 @@ def get_posts_by_author(
             Post.user_id.in_(user_ids),
             Post.round >= visibility,
             Post.news_id.isnot(None) if articles else True,
-        ).limit(limit)
-    )
+        )
+        .order_by(desc(Post.id))
+        .limit(limit)
+    ).all()
 
     return posts
 

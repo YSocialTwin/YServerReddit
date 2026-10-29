@@ -216,7 +216,9 @@ def _hot_base_score(net_score: int, post_round: int, *, round_decay: float = 12.
         sign = -1.0
     else:
         sign = 0.0
-    return math.log10(abs(int(net_score)) + 1.0) + sign * (
+    # Reddit-style: the sign applies to the vote term only; recency is always added, so
+    # new posts without votes still rank by age instead of falling below any upvoted post.
+    return sign * math.log10(abs(int(net_score)) + 1.0) + (
         float(post_round) / float(round_decay)
     )
 
@@ -874,13 +876,16 @@ def read():
 
     # if no user id is provided, return an empty list
     articles = False
-    if "article" in data:
+    # the client sends "articles"; "article" is kept for backward compatibility
+    if data.get("articles") or data.get("article"):
         articles = True
         # get the user
         us = db.session.scalars(select(User_mgmt).filter_by(id=uid)).first()
         # get news pages ids having the same user leaning
-        pages = db.session.scalars(select(User_mgmt).filter_by(is_page=1, leaning=us.leaning)).all()
-        if pages is not None:
+        if us is not None:
+            pages = db.session.scalars(
+                select(User_mgmt).filter_by(is_page=1, leaning=us.leaning)
+            ).all()
             pages = [x.id for x in pages]
         else:
             pages = []
@@ -963,14 +968,14 @@ def read():
                     Post.user_id.in_(pages),
                 )
                 .order_by(desc(Post.id))
-                .limit(10)
+                .limit(limit)
             ).all()
         else:
             posts = (
                 db.session.query(Post)
                 .filter(Post.round >= visibility, Post.user_id != uid)
                 .order_by(desc(Post.id))
-                .limit(10)
+                .limit(limit)
             ).all()
 
     elif mode == "rchrono_popularity":
@@ -982,7 +987,7 @@ def read():
                     Post.news_id.isnot(None),
                     Post.user_id.in_(pages),
                 )
-                .order_by(desc(Post.id), desc(Post.reaction_count))
+                .order_by(desc(Post.reaction_count), desc(Post.id))
                 .limit(limit)
             ).all()
 
@@ -990,117 +995,47 @@ def read():
             posts = (
                 db.session.query(Post)
                 .filter(Post.round >= visibility, Post.user_id != uid)
-                .order_by(desc(Post.id), desc(Post.reaction_count))
+                .order_by(desc(Post.reaction_count), desc(Post.id))
                 .limit(limit)
             ).all()
 
         posts = [posts, []]
 
-    elif mode == "rchrono_followers":
-        if fratio < 1:
-            follower_posts_limit = int(limit * fratio)
-            additional_posts_limit = limit - follower_posts_limit
+    elif mode in ("rchrono_followers", "rchrono_followers_popularity"):
+        # Followed accounts first (quota ``followers_ratio``), completed with posts from
+        # everybody else. The "_popularity" variant orders by reactions first, then recency.
+        if mode == "rchrono_followers_popularity":
+            ordering = (desc(Post.reaction_count), desc(Post.id))
         else:
-            follower_posts_limit = limit
-            additional_posts_limit = 0
+            ordering = (desc(Post.id),)
 
-        # get followers
-        follower = db.session.scalars(select(Follow).filter_by(action="follow", user_id=uid)).all()
+        # followed accounts
+        follower = db.session.scalars(
+            select(Follow).filter_by(action="follow", user_id=uid)
+        ).all()
         follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
 
-        # get posts from followers in reverse chronological order
-        if articles:
-            posts = db.session.scalars(
-                select(Post).filter(
-                    Post.round >= visibility,
-                    Post.news_id.isnot(None),
-                    Post.user_id.in_(pages),
-                    Post.user_id.in_(follower_ids),
-                )
-                .order_by(desc(Post.id))
-                .limit(follower_posts_limit)
-            ).all()
-        else:
-            posts = db.session.scalars(
-                select(Post).filter(
-                    Post.round >= visibility, Post.user_id.in_(follower_ids)
-                )
-                .order_by(desc(Post.id))
-                .limit(follower_posts_limit)
-            ).all()
+        def _candidates():
+            q = select(Post).filter(Post.round >= visibility, Post.user_id != uid)
+            if articles:
+                q = q.filter(Post.news_id.isnot(None), Post.user_id.in_(pages))
+            return q
+
+        posts = db.session.scalars(
+            _candidates()
+            .filter(Post.user_id.in_(follower_ids))
+            .order_by(*ordering)
+            .limit(follower_posts_limit)
+        ).all()
 
         if additional_posts_limit != 0:
-            if articles:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(
-                        Post.round >= visibility,
-                        Post.news_id.isnot(None),
-                        Post.user_id != uid,
-                    )
-                    .order_by(desc(Post.id))
-                    .limit(additional_posts_limit)
-                ).all()
-            else:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(Post.round >= visibility, Post.user_id != uid)
-                    .order_by(desc(Post.id))
-                    .limit(additional_posts_limit)
-                ).all()
-
-            posts = [posts, additional_posts]
-
-    elif mode == "rchrono_followers_popularity":
-        if fratio < 1:
-            follower_posts_limit = int(limit * fratio)
-            additional_posts_limit = limit - follower_posts_limit
-        else:
-            follower_posts_limit = limit
-            additional_posts_limit = 0
-
-        # get followers
-        follower = db.session.scalars(select(Follow).filter_by(action="follow", user_id=uid)).all()
-        follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
-
-        # get posts from followers ordered by likes and reverse chronologically
-        if articles:
-            posts = (
-                db.session.query(Post)
-                .filter(
-                    Post.round >= visibility,
-                    Post.news_id.isnot(None),
-                    Post.user_id.in_(pages),
-                )
-                .order(desc(Post.id), desc(Post.reaction_count))
-                .limit(follower_posts_limit)
+            # do not repeat posts already selected from followed accounts
+            additional_posts = db.session.scalars(
+                _candidates()
+                .filter(Post.id.notin_([p.id for p in posts]))
+                .order_by(*ordering)
+                .limit(additional_posts_limit)
             ).all()
-        else:
-            posts = (
-                db.session.query(Post)
-                .filter(Post.round >= visibility, Post.user_id.in_(follower_ids))
-                .order_by(desc(Post.id), desc(Post.reaction_count))
-                .limit(follower_posts_limit)
-            ).all()
-
-        if additional_posts_limit != 0:
-            if articles:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(
-                        Post.round >= visibility,
-                        Post.news_id.isnot(None),
-                        Post.user_id.in_(pages),
-                    )
-                    .order_by(
-                        desc(Post.id),
-                        desc(Post.reaction_count),
-                    )
-                    .limit(additional_posts_limit)
-                ).all()
-            else:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(Post.round >= visibility, Post.user_id != uid)
-                    .order_by(desc(Post.id), desc(Post.reaction_count))
-                    .limit(additional_posts_limit)
-                ).all()
 
             posts = [posts, additional_posts]
 
