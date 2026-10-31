@@ -148,8 +148,9 @@ def test_safe_gate_swallows_opening_errors():
 def test_adapter_clock_and_conformance():
     pytest.importorskip("ysocial_federation")
     from y_server.federation.adapter import YServerRedditAdapter
-    from ysocial_federation.testing.conformance import ConformanceCase, run_all
+    from ysocial_federation.testing.conformance import CHECKS, ConformanceCase
 
     case = ConformanceCase(lambda: YServerRedditAdapter("forum", 1), (0, 0),
                            lambda r: (r[0], r[1] + 1) if r[1] < 23 else (r[0] + 1, 0), "forum", 1)
-    assert "consecutive_ticks" in run_all(case)
+    for name in ("platform", "first_round_is_tick_zero", "consecutive_ticks"):  # the clock part; the whole suite runs in federation_bus_impl.py
+        CHECKS[name](case)
