@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- Federation (opt-in): `y_server/federation/` (adapter `forum`, gate wrapper) and a clock gate in `_try_advance_round_locked`; off unless the `federation` section of the configuration is enabled, in which case standalone behaviour is unchanged.
+
 ### Fixed
 - `/read`: `limit` is honoured by `rchrono` (it was fixed to 10).
 - `/read`: `rchrono_popularity` and `rchrono_followers_popularity` order by reactions first, then recency (the old `ORDER BY id, reaction_count` made the second key a no-op).

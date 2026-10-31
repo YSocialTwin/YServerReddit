@@ -36,6 +36,9 @@ def start_server(config):
     app.config["sentiment_annotation"] = config.get("sentiment_annotation", False)
     app.config["emotion_annotation"] = config.get("emotion_annotation", False)
     app.config["sync_timeout_seconds"] = config.get("sync_timeout_seconds", 300)
+    from y_server.federation import init_federation
+
+    init_federation(config)  # no-op unless the "federation" section is enabled
     app.run(debug=debug, port=int(config["port"]), host=config["host"])
 
 
