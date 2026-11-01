@@ -3252,6 +3252,17 @@ def get_post_topics():
     return json.dumps(res)
 
 
+@app.route("/get_topics", methods=["GET", "POST"])
+def get_topics():
+    """
+    List the topics (the communities of the forum) that exist on this server.
+
+    :return: a json list of {"id", "name"}, by id
+    """
+    rows = db.session.scalars(select(Interests).order_by(Interests.iid)).all()
+    return json.dumps([{"id": r.iid, "name": r.interest} for r in rows])
+
+
 @app.route("/get_thread_root", methods=["GET"])
 def get_thread_root():
     """

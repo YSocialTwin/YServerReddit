@@ -176,3 +176,36 @@ def test_an_offline_crosspost_leaves_at_the_first_barrier_after_the_restart(clie
     assert s == 200 and out["ok"]
     sent = fed.export_outbox(5)  # the restarted server reaches its first barrier
     assert [(e.target_member, e.payload["text_excerpt"], e.payload["global_agent_id"]) for e in sent] == [("micro", "hi micro", "human:7")]
+
+
+def test_a_person_can_choose_the_community_of_a_thread(gw):
+    """P1.2: `community` is a topic of the forum, by name (any case) or id; unknown ones are refused; absent = as before."""
+    from y_server.modals import Interests, Post_topics
+
+    uid = _register(gw)
+    topic = db.session.scalars(select(Interests).order_by(Interests.iid)).first()
+    status, out = gw.act(WHO, [{"action": "post", "text": "by name", "community": topic.interest.upper()},
+                               {"action": "post", "text": "by id", "community": topic.iid},
+                               {"action": "post", "text": "no community"},
+                               {"action": "post", "text": "unknown", "community": "nowhere"},
+                               {"action": "post", "text": "bad", "community": ["x"]}])
+    assert status == 200 and [r["ok"] for r in out["results"]] == [True, True, True, False, False], out
+    assert out["results"][3]["error"] == "unknown community"
+    posts = {p.tweet: p for p in db.session.scalars(select(Post).where(Post.user_id == uid, Post.comment_to == -1)).all()}
+    topics = {t: [x.topic_id for x in db.session.scalars(select(Post_topics).where(Post_topics.post_id == p.id)).all()] for t, p in posts.items()}
+    assert topics == {"by name": [topic.iid], "by id": [topic.iid], "no community": []}
+
+
+def test_the_community_is_chosen_offline_too(client, tmp_path):  # noqa: F811
+    from y_server.modals import Interests
+
+    with app.app_context():
+        topic = db.session.scalars(select(Interests).order_by(Interests.iid)).first()
+        factory = lambda folder: client_call(client)  # noqa: E731
+        status, out = handle_offline(tmp_path, "register", {"key": "k9", "account": dict(ANN, username="offann", email="off@x.org")},
+                                     factory, running=lambda: False)
+        assert status == 200, out
+        body = {"username": "offann", "email": "off@x.org",
+                "actions": [{"action": "post", "text": "off", "community": topic.interest}, {"action": "post", "text": "x", "community": "nowhere"}]}
+        status, out = handle_offline(tmp_path, "act", body, factory, running=lambda: False)
+        assert status == 200 and [r["ok"] for r in out["results"]] == [True, False], out

@@ -27,6 +27,10 @@ Only accounts with `user_type = "human"` are served (403 otherwise, 404 if unkno
 - `{"action": "post", "text": "...", "crosspost_to": [{"member": "micro", "text": "..."}]}`: a thread. `crosspost_to` is the
   same field an agent sends: with the federation in `agent_action` mode the thread leaves for each listed member at the next
   barrier; a missing `text` is the text of the thread; a member listed twice counts once.
+  Optional `"community"`: the community of the thread, which in the forum is a topic: its **name** (any case) or its
+  integer **id**, as listed by `GET /get_topics` (`[{"id", "name"}]`). Unknown or malformed values give `ok: false`,
+  `error: "unknown community"` (or `community must be a name or an id`) for that action only; absent, the thread is created
+  as before (default board). It works the same offline.
 - `{"action": "comment", "post_id": 12, "text": "..."}`
 - `{"action": "react", "post_id": 12, "type": "like" | "dislike"}`
 - `{"action": "follow" | "unfollow", "target": 7}`

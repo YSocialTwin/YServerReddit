@@ -18,7 +18,7 @@ Call = Callable[[str, str, Optional[dict]], Tuple[int, Any]]
 ALLOWED_ACTIONS = frozenset({"post", "comment", "react", "follow", "unfollow", "report"})
 # The fields a person may set on each action; the rest (topics, emotions, agent-only fields, the round...) is dropped.
 ACTION_FIELDS = {
-    "post": {"text", "crosspost_to"},
+    "post": {"text", "community", "crosspost_to"},
     "comment": {"post_id", "text"},
     "react": {"post_id", "type"},
     "follow": {"target"},
@@ -174,7 +174,8 @@ class ForumHumanGateway:
     def _payload(self, kind: str, uid: int, tid: int, fields: dict) -> Tuple[str, dict]:
         if kind == "post":
             text = self._text(fields)
-            payload = {"user_id": uid, "tweet": text, "emotions": [], "hashtags": [], "mentions": [], "topics": [], "tid": tid}
+            payload = {"user_id": uid, "tweet": text, "emotions": [], "hashtags": [], "mentions": [],
+                       "topics": self._community(fields.get("community")), "tid": tid}
             targets = self._targets(fields.get("crosspost_to"), text)
             if targets:  # the person chose where to post it too: same fields as the payload of an agent
                 payload.update(crosspost=True, crosspost_to=targets)
@@ -191,6 +192,21 @@ class ForumHumanGateway:
         if fields.get("type") not in REPORTS:
             raise ValueError("type must be offensive or toxic")
         return "/report", {"user_id": uid, "post_id": self._int(fields, "post_id"), "type": fields["type"], "tid": tid}
+
+    def _community(self, raw: Any) -> List[int]:
+        """[topic id] of the community the person chose (a topic name, any case, or its id); [] when none is given:
+        the thread is then created as before. A community that does not exist on this server is refused."""
+        if raw in (None, ""):
+            return []
+        if isinstance(raw, bool) or not isinstance(raw, (str, int)):
+            raise ValueError("community must be a name or an id")
+        status, body = self.call("GET", "/get_topics", None)
+        if status != 200 or not isinstance(body, list):
+            raise ValueError("the communities are not available")
+        for row in body:
+            if (isinstance(raw, int) and row["id"] == raw) or (isinstance(raw, str) and row["name"].lower() == raw.strip().lower()):
+                return [int(row["id"])]
+        raise ValueError("unknown community")
 
     @staticmethod
     def _targets(raw: Any, text: str) -> List[dict]:
