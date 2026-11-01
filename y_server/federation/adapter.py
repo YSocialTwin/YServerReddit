@@ -310,33 +310,80 @@ class YServerRedditAdapter(PlatformAdapter):
                                        .order_by(FederationCrosspost.seq)).all())
 
     # -- bus: ingest -------------------------------------------------------------------
+    @staticmethod
+    def _norm(raw):
+        return " ".join(str(raw).split())
+
     def _topics_in_common(self, names):
-        """Ids of the local topics named like the content's topics (case-insensitive), lowest id first."""
+        """Ids of the local topics named like the content's topics (case-insensitive), lowest id first. A long name
+        that was migrated before is found through the name it was created with."""
         from y_server import db
         from y_server.modals import Interests
+        from .tables import FederationTopicOrigin
 
-        wanted = {str(n).strip().lower() for n in names}
+        wanted = set()
+        for n in names:
+            key = self._norm(n).lower()
+            wanted.add(key)
+            if len(key) > 20:
+                origin = db.session.get(FederationTopicOrigin, key)
+                if origin is not None:
+                    wanted.add(origin.name.strip().lower())
         rows = db.session.scalars(select(Interests).order_by(Interests.iid)).all()
         return [r.iid for r in rows if (r.interest or "").strip().lower() in wanted]
 
-    def _migrated_topic(self, names, tick, source_member):
-        """Topic migration: the first topic of the content, created on this platform when no local topic carries any of
-        the content's names (case-insensitive). Returns its id, or None when there is nothing to create."""
+    def _find(self, name):
         from y_server import db
         from y_server.modals import Interests
-        from .tables import FederationTopic
+
+        for row in db.session.scalars(select(Interests).order_by(Interests.iid)).all():
+            if (row.interest or "").strip().lower() == name.lower():
+                return row.iid
+        return None
+
+    def _migrated_topic(self, names, tick, source_member):
+        """Topic migration: the first topic of the content, created on this platform when no local topic carries any of
+        the content's names (case-insensitive). Returns its id, or None when there is nothing to create.
+
+        `interests.interest` holds 20 characters. A longer name is cut; when the cut name already belongs to another
+        topic it is cut shorter and gets `~` and 4 hex digits of the hash of the full name, so two different long names
+        never end up as one topic, and the same name always gives the same topic (the full name is recorded in
+        federation_topic_origin)."""
+        import hashlib
+
+        from y_server import db
+        from y_server.modals import Interests
+        from .tables import FederationTopic, FederationTopicOrigin
 
         for raw in names:
-            name = " ".join(str(raw).split())[:20].strip()
-            if not name:
+            full = self._norm(raw)
+            if not full:
                 continue
-            for row in db.session.scalars(select(Interests).order_by(Interests.iid)).all():
-                if (row.interest or "").strip().lower() == name.lower():
-                    return row.iid
+            if len(full) <= 20:
+                found = self._find(full)
+                if found is not None:
+                    return found
+                name, original = full, None
+            else:
+                original = full.lower()
+                known = db.session.get(FederationTopicOrigin, original)
+                if known is not None:
+                    found = self._find(known.name)
+                    if found is not None:
+                        return found
+                name = full[:20].strip()
+                if self._find(name) is not None:  # the cut name is another topic: a stable, distinct name
+                    name = full[:15].rstrip() + "~" + hashlib.sha1(original.encode("utf-8")).hexdigest()[:4]
+                    found = self._find(name)
+                    if found is not None:
+                        db.session.merge(FederationTopicOrigin(original=original, name=name, source_member=str(source_member)))
+                        return found
             topic = Interests(interest=name)
             db.session.add(topic)
             db.session.flush()
             db.session.merge(FederationTopic(name=name.lower(), created_tick=int(tick), source_member=str(source_member)))
+            if original is not None:
+                db.session.merge(FederationTopicOrigin(original=original, name=name, source_member=str(source_member)))
             return topic.iid
         return None
 

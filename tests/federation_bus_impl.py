@@ -348,3 +348,24 @@ def test_without_topic_migration_nothing_is_created(client, adapter):
     before = len(db.session.scalars(select(Interests)).all())
     adapter.ingest_inbox(5, [_crosspost(0, 1, topics=["brand new"])])
     assert len(db.session.scalars(select(Interests)).all()) == before
+
+
+def test_long_topic_names_that_collide_after_the_cut_stay_distinct_and_stable(client, adapter):
+    """P1.3: `interests.interest` has 20 characters; two different long names with the same first 20 never merge."""
+    from y_server.federation.tables import FederationTopicOrigin
+
+    a = adapter
+    a.topic_migration = True
+    one, two = "climate change policy reform", "climate change policy analysis"
+    envs = [_crosspost(0, 1, topics=[one]), _crosspost(1, 1, topics=[two]), _crosspost(2, 1, topics=[one.upper()])]
+    a.ingest_inbox(5, envs)
+    a.ingest_inbox(5, envs)  # INV-05
+    a.ingest_inbox(6, [_crosspost(3, 1, topics=[two]), _crosspost(4, 1, topics=[one])])  # new messages, same names
+    names = [i.interest for i in db.session.scalars(select(Interests)).all() if i.interest.lower().startswith("climate chang")]
+    assert len(names) == 2 and len(set(names)) == 2 and all(len(n) <= 20 for n in names)
+    assert "climate change polic" in [n.lower() for n in names] and any("~" in n for n in names)
+    origins = {o.original: o.name for o in db.session.scalars(select(FederationTopicOrigin)).all()}
+    assert set(origins) == {one, two} and set(origins.values()) == set(names)
+    posts = db.session.scalars(select(Post).order_by(Post.id)).all()[-5:]
+    got = [tuple(t.topic_id for t in db.session.scalars(select(Post_topics).where(Post_topics.post_id == p.id)).all()) for p in posts]
+    assert got[0] == got[2] == got[4] and got[1] == got[3] and got[0] != got[1] and all(len(g) == 1 for g in got)
