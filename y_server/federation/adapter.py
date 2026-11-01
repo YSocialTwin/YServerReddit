@@ -16,12 +16,16 @@ import logging
 
 from sqlalchemy import desc, select
 
+from ysocial_federation import quoted as fed_quoted
 from ysocial_federation.adapter import IngestReport, PlatformAdapter
 from ysocial_federation.envelope import COORDINATOR, Envelope
 from ysocial_federation.schemas import TEXT_EXCERPT_MAX
 from ysocial_federation.timebase import ZERO_BASED
 
 log = logging.getLogger("y_server.federation")
+
+
+POST_TEXT_MAX = 500  # Post.tweet is a String(500)
 
 
 class YServerRedditAdapter(PlatformAdapter):
@@ -290,7 +294,7 @@ class YServerRedditAdapter(PlatformAdapter):
     def ingest_inbox(self, tick, envelopes):
         from y_server import db
         from y_server.modals import Post, Post_topics, Rounds, User_mgmt
-        from .tables import FederationRef, ensure_tables
+        from .tables import FederationQuoted, FederationRef, ensure_tables
 
         ensure_tables()
         report = IngestReport()
@@ -316,10 +320,15 @@ class YServerRedditAdapter(PlatformAdapter):
                 skip("skipped_ineligible")
                 continue
             current = db.session.scalars(select(Rounds).order_by(desc(Rounds.id))).first()
-            post = Post(tweet=payload["text_excerpt"], round=current.id if current else 0, user_id=uid, comment_to=-1)
+            quoted = payload.get("quoted")
+            text = fed_quoted.render(payload["text_excerpt"], quoted, limit=POST_TEXT_MAX) if quoted else payload["text_excerpt"]
+            post = Post(tweet=text, round=current.id if current else 0, user_id=uid, comment_to=-1)
             db.session.add(post)
             db.session.flush()
             post.thread_id = post.id
+            if quoted:
+                db.session.add(FederationQuoted(post_id=post.id, author_name=quoted["author_name"], global_agent_id=quoted["global_agent_id"],
+                                                member=quoted["member"], source_ref=quoted["source_ref"], text_excerpt=quoted["text_excerpt"]))
             for topic_id in self._topics_in_common(payload.get("topics") or [])[:1]:  # community = topic; lowest id on a tie
                 db.session.add(Post_topics(post_id=post.id, topic_id=topic_id))
             db.session.add(FederationRef(local_kind="post", local_id=post.id, source_ref=payload["source_ref"],

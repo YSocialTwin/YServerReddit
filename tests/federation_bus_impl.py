@@ -304,3 +304,22 @@ def test_cross_post_goes_to_the_topic_in_common_with_the_lowest_id(client, adapt
     posts = db.session.scalars(select(Post).order_by(Post.id)).all()
     topics = {p.id: [t.topic_id for t in db.session.scalars(select(Post_topics).where(Post_topics.post_id == p.id)).all()] for p in posts}
     assert [topics[p.id] for p in posts] == [[2], [3], []]
+
+
+def test_a_quoted_crosspost_is_written_with_the_attribution_and_keeps_the_reference(adapter):
+    from y_server.federation.tables import FederationQuoted
+
+    q = {"author_name": "ann", "global_agent_id": "gx", "member": "microblogging", "source_ref": "ysocial://1/microblogging/post/4",
+         "text_excerpt": "original words"}
+    env = _crosspost(0, 1, "agreed")
+    env = Envelope.create(1, env.source_member, env.target_member, env.tick_emitted, 0, "crosspost.v1", dict(env.payload, quoted=q))
+    assert adapter.ingest_inbox(5, [env]).materialized == 1
+    assert adapter.ingest_inbox(5, [env]).duplicates == 1  # INV-05
+    post = db.session.scalars(select(Post).order_by(Post.id.desc())).first()
+    assert post.tweet == "agreed\n↪ ann @ microblogging: «original words»"
+    row = db.session.get(FederationQuoted, post.id)
+    assert (row.author_name, row.global_agent_id, row.member, row.source_ref) == ("ann", "gx", "microblogging", "ysocial://1/microblogging/post/4")
+    long = dict(q, text_excerpt="w" * 280)
+    env2 = Envelope.create(1, env.source_member, env.target_member, env.tick_emitted, 1, "crosspost.v1", dict(env.payload, quoted=long, text_excerpt="x" * 280))
+    adapter.ingest_inbox(5, [env2])
+    assert len(db.session.scalars(select(Post).order_by(Post.id.desc())).first().tweet) <= 500

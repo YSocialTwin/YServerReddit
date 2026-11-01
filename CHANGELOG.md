@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- Federation: a cross-post that shares another agent's content (`quoted`, opt-in `agent_action`) is written with an attribution line (cut to the 500 characters of a post) and its structured reference is kept in the new table `federation_quoted`. The forum still has no share action of its own.
 - Federation local churn (F4.5, opt-in): `churned_agents(day)` gives the accounts whose `left_on` is set up to the end of the day and that the federation still sees as active, so the coordinator records them as left with reason churn.
 - Federation exposures (F4.4b, opt-in `federation.exposures`): with `federation.exposures` the adapter also hands `exposure.v1` to the bus: recommended cross-posted threads are views (approximate), reactions and replies are interactions (exact); tie from the follow table; table `federation_exposure_log`, fixed per tick.
 - Federation attention (opt-in): `apply_attention` stores the multiplier of the day per account (table `federation_attention`) and `GET /federation/attention`; the client scales the number of actions of each agent in the slot; with the federation off or multiplier 1 nothing changes.
