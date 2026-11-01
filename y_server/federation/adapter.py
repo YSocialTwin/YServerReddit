@@ -17,6 +17,7 @@ import logging
 from sqlalchemy import desc, false, or_, select
 
 from ysocial_federation import quoted as fed_quoted
+from ysocial_federation.bindings import BoundAccountsMixin
 from ysocial_federation.adapter import IngestReport, PlatformAdapter
 from ysocial_federation.envelope import COORDINATOR, Envelope
 from ysocial_federation.schemas import TEXT_EXCERPT_MAX
@@ -29,12 +30,15 @@ HUMAN_PREFIX = "human:"
 POST_TEXT_MAX = 500  # Post.tweet is a String(500)
 
 
-class YServerRedditAdapter(PlatformAdapter):
+class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
     platform = "forum"
 
     def __init__(self, member, federation_id=1, accounts=None, export_policy="marked", emit_exposures=False,
-                 crosspost_mode="coordinator_rule", topic_migration=False):
-        """accounts: {global_agent_id: local user id}; without an entry the global id is the local user id."""
+                 crosspost_mode="coordinator_rule", topic_migration=False, bindings_file=None):
+        """accounts: {global_agent_id: local user id}; without an entry the global id is the local user id.
+
+        bindings_file (INV-17): agents are bound by username; the accounts are reported to the coordinator, whose answer is kept in
+        this file. Then the local id is never the global id: an account that is not bound acts as usual and is not exported."""
         if export_policy not in ("marked", "all"):
             raise ValueError("export_policy must be 'marked' or 'all'")
         self.member = member
@@ -48,6 +52,17 @@ class YServerRedditAdapter(PlatformAdapter):
         self._destinations = {}  # {global_agent_id: [{"member", "local_account_id"}]}, set by the gate before each export
         self._accounts = {str(k): int(v) for k, v in (accounts or {}).items()}
         self._by_user = {v: k for k, v in self._accounts.items()}
+        self._init_bindings(bindings_file, self._enumerate_accounts, cast=int)
+
+    def _enumerate_accounts(self, after):
+        from y_server import db
+        from y_server.modals import User_mgmt
+
+        query = db.session.query(User_mgmt.username, User_mgmt.id, User_mgmt.user_type)
+        if after is not None:
+            query = query.filter(User_mgmt.id > int(after))
+        rows = query.order_by(User_mgmt.id).all()
+        return [(u, i) for u, i, t in rows if t != "human" and i not in self._by_user], (rows[-1][1] if rows else after)
 
     # -- clock -------------------------------------------------------------------------
     def to_tick(self, local_round):
@@ -62,6 +77,8 @@ class YServerRedditAdapter(PlatformAdapter):
         gid = str(global_agent_id)
         if gid in self._accounts:
             return self._accounts[gid]
+        if self._is_bound_mode:  # INV-17: the global id comes from the coordinator, never from the local id
+            return None
         return int(gid) if gid.isdigit() else None
 
     def agent_of(self, user_id):
@@ -70,7 +87,9 @@ class YServerRedditAdapter(PlatformAdapter):
         gid = self._by_user.get(int(user_id))
         if gid is not None:
             return gid
-        return f"human:local-{int(user_id)}" if self._is_human(user_id) else str(int(user_id))
+        if self._is_human(user_id):
+            return f"human:local-{int(user_id)}"
+        return self._unbound_id(int(user_id)) if self._is_bound_mode else str(int(user_id))
 
     def _is_human(self, user_id):
         """True for the account of a person: its global id starts with `human:` or, without an entry in the identity map,
@@ -165,7 +184,7 @@ class YServerRedditAdapter(PlatformAdapter):
                                        or_(Post.shared_from == -1, Post.id.in_(marked_ids) if self.crosspost_mode == "agent_action" else false()),
                                        Post.moderated == 0, Post.id.not_in(exported), Post.id.not_in(materialised))
             pending = [p for p in db.session.scalars(query.order_by(Post.id)).all()
-                       if self._active(p.user_id) and not self._unmapped_human(p.user_id)
+                       if self._active(p.user_id) and not self._unmapped_human(p.user_id) and self._federated(p.user_id)
                        and (self.export_policy == "all" or self._marked(p.id))]
             for seq, post in enumerate(pending):
                 db.session.merge(FederationExport(post_id=post.id, tick=tick, seq=seq))
@@ -199,6 +218,8 @@ class YServerRedditAdapter(PlatformAdapter):
                 rows = rows + self._ensure_quote_exposures(tick, rows, quoting)
             front = []
             for row in rows:
+                if not self._federated(row.viewer_uid):
+                    continue
                 env = Envelope.create(self.federation_id, self.member, COORDINATOR, tick, max((e.seq for e in out + front), default=-1) + 1, "exposure.v1", {
                     "viewer_global_agent_id": self.agent_of(row.viewer_uid), "source_ref": row.source_ref, "tick": tick,
                     "exact": bool(row.exact), "kind": row.kind, "tie": row.tie})
