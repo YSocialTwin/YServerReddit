@@ -41,6 +41,16 @@ class FederationQuoted(db.Model):
     text_excerpt = db.Column(db.Text, nullable=False, default="")
 
 
+class FederationTopic(db.Model):
+    """Topics created on this platform because a cross-post brought them (topic migration)."""
+
+    __tablename__ = "federation_topic"
+
+    name = db.Column(db.String(20), primary_key=True)  # lower case, the name matched case-insensitively
+    created_tick = db.Column(db.Integer, nullable=True)
+    source_member = db.Column(db.String(64), nullable=False)
+
+
 class FederationExport(db.Model):
     __tablename__ = "federation_export"
 
@@ -96,7 +106,7 @@ class FederationState(db.Model):
 
 
 TABLES = (FederationMembership, FederationRef, FederationExport, FederationState, FederationAttention, FederationExposure,
-          FederationCrosspost, FederationQuoted)
+          FederationCrosspost, FederationQuoted, FederationTopic)
 
 
 def ensure_tables():

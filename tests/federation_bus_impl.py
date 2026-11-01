@@ -323,3 +323,28 @@ def test_a_quoted_crosspost_is_written_with_the_attribution_and_keeps_the_refere
     env2 = Envelope.create(1, env.source_member, env.target_member, env.tick_emitted, 1, "crosspost.v1", dict(env.payload, quoted=long, text_excerpt="x" * 280))
     adapter.ingest_inbox(5, [env2])
     assert len(db.session.scalars(select(Post).order_by(Post.id.desc())).first().tweet) <= 500
+
+
+def test_topic_migration_creates_the_missing_topic_once_and_attaches_it(client, adapter):
+    from y_server.federation.tables import FederationTopic
+
+    a = adapter
+    a.topic_migration = True
+    envs = [_crosspost(0, 1, topics=["Chess"]), _crosspost(1, 1, topics=["chess"]), _crosspost(2, 1, topics=["music"])]
+    a.ingest_inbox(5, envs)
+    a.ingest_inbox(5, envs)  # INV-05: the same messages again create nothing
+    chess = [i for i in db.session.scalars(select(Interests)).all() if i.interest == "Chess"]
+    assert len(chess) == 1
+    posts = db.session.scalars(select(Post).order_by(Post.id)).all()[-3:]
+    got = [[t.topic_id for t in db.session.scalars(select(Post_topics).where(Post_topics.post_id == p.id)).all()] for p in posts]
+    assert got[0] == got[1] == [chess[0].iid] and len(got[2]) == 1 and got[2] != [chess[0].iid]  # music exists already (a local topic wins)
+    row = db.session.get(FederationTopic, "chess")
+    assert row.created_tick == 5 and row.source_member == envs[0].source_member
+    a.ingest_inbox(6, [_crosspost(3, 1, topics=["a very long topic name that overflows"])])
+    assert any(i.interest == "a very long topic na" for i in db.session.scalars(select(Interests)).all())
+
+
+def test_without_topic_migration_nothing_is_created(client, adapter):
+    before = len(db.session.scalars(select(Interests)).all())
+    adapter.ingest_inbox(5, [_crosspost(0, 1, topics=["brand new"])])
+    assert len(db.session.scalars(select(Interests)).all()) == before

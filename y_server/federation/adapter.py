@@ -32,7 +32,7 @@ class YServerRedditAdapter(PlatformAdapter):
     platform = "forum"
 
     def __init__(self, member, federation_id=1, accounts=None, export_policy="marked", emit_exposures=False,
-                 crosspost_mode="coordinator_rule"):
+                 crosspost_mode="coordinator_rule", topic_migration=False):
         """accounts: {global_agent_id: local user id}; without an entry the global id is the local user id."""
         if export_policy not in ("marked", "all"):
             raise ValueError("export_policy must be 'marked' or 'all'")
@@ -43,6 +43,7 @@ class YServerRedditAdapter(PlatformAdapter):
         if crosspost_mode not in ("coordinator_rule", "agent_action"):
             raise ValueError("crosspost_mode must be 'coordinator_rule' or 'agent_action'")
         self.crosspost_mode = crosspost_mode
+        self.topic_migration = bool(topic_migration)  # a topic of a cross-post that does not exist here is created
         self._destinations = {}  # {global_agent_id: [{"member", "local_account_id"}]}, set by the gate before each export
         self._accounts = {str(k): int(v) for k, v in (accounts or {}).items()}
         self._by_user = {v: k for k, v in self._accounts.items()}
@@ -291,6 +292,27 @@ class YServerRedditAdapter(PlatformAdapter):
         rows = db.session.scalars(select(Interests).order_by(Interests.iid)).all()
         return [r.iid for r in rows if (r.interest or "").strip().lower() in wanted]
 
+    def _migrated_topic(self, names, tick, source_member):
+        """Topic migration: the first topic of the content, created on this platform when no local topic carries any of
+        the content's names (case-insensitive). Returns its id, or None when there is nothing to create."""
+        from y_server import db
+        from y_server.modals import Interests
+        from .tables import FederationTopic
+
+        for raw in names:
+            name = " ".join(str(raw).split())[:20].strip()
+            if not name:
+                continue
+            for row in db.session.scalars(select(Interests).order_by(Interests.iid)).all():
+                if (row.interest or "").strip().lower() == name.lower():
+                    return row.iid
+            topic = Interests(interest=name)
+            db.session.add(topic)
+            db.session.flush()
+            db.session.merge(FederationTopic(name=name.lower(), created_tick=int(tick), source_member=str(source_member)))
+            return topic.iid
+        return None
+
     def ingest_inbox(self, tick, envelopes):
         from y_server import db
         from y_server.modals import Post, Post_topics, Rounds, User_mgmt
@@ -329,7 +351,11 @@ class YServerRedditAdapter(PlatformAdapter):
             if quoted:
                 db.session.add(FederationQuoted(post_id=post.id, author_name=quoted["author_name"], global_agent_id=quoted["global_agent_id"],
                                                 member=quoted["member"], source_ref=quoted["source_ref"], text_excerpt=quoted["text_excerpt"]))
-            for topic_id in self._topics_in_common(payload.get("topics") or [])[:1]:  # community = topic; lowest id on a tie
+            topic_ids = self._topics_in_common(payload.get("topics") or [])[:1]  # community = topic; lowest id on a tie
+            if not topic_ids and self.topic_migration:
+                created = self._migrated_topic(payload.get("topics") or [], tick, env.source_member)
+                topic_ids = [created] if created is not None else []
+            for topic_id in topic_ids:
                 db.session.add(Post_topics(post_id=post.id, topic_id=topic_id))
             db.session.add(FederationRef(local_kind="post", local_id=post.id, source_ref=payload["source_ref"],
                                          fed_msg_id=env.fed_msg_id))
