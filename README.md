@@ -89,6 +89,8 @@ where:
 
 ## Documentation
 
+Human participants (gateway, offline entry): [docs/human-gateway.md](docs/human-gateway.md).
+
 - Official documentation: <https://ysocialtwin.github.io/>
 - Repository documentation (MkDocs, see [`mkdocs.yml`](mkdocs.yml)) in [`docs/`](docs). Preview it with:
 
