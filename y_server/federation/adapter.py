@@ -25,6 +25,7 @@ from ysocial_federation.timebase import ZERO_BASED
 log = logging.getLogger("y_server.federation")
 
 
+HUMAN_PREFIX = "human:"
 POST_TEXT_MAX = 500  # Post.tweet is a String(500)
 
 
@@ -64,7 +65,28 @@ class YServerRedditAdapter(PlatformAdapter):
         return int(gid) if gid.isdigit() else None
 
     def agent_of(self, user_id):
-        return self._by_user.get(int(user_id), str(int(user_id)))
+        """Global id of a local account. An account of a person (user_type "human") that is not in the identity map never
+        falls back to its local id, which could be the id of an agent: it gets a `human:local-<id>` marker instead."""
+        gid = self._by_user.get(int(user_id))
+        if gid is not None:
+            return gid
+        return f"human:local-{int(user_id)}" if self._is_human(user_id) else str(int(user_id))
+
+    def _is_human(self, user_id):
+        """True for the account of a person: its global id starts with `human:` or, without an entry in the identity map,
+        its user_type is "human". Persons never take part in the rules of the agents (attention, churn, affective report,
+        exposures)."""
+        gid = self._by_user.get(int(user_id))
+        if gid is not None:
+            return gid.startswith(HUMAN_PREFIX)
+        try:
+            from y_server import db
+            from y_server.modals import User_mgmt
+
+            user = db.session.get(User_mgmt, int(user_id))
+        except Exception:  # noqa: BLE001 - outside an application context nothing marks the account as a person
+            return False
+        return user is not None and user.user_type == "human"
 
     # -- membership --------------------------------------------------------------------
     def apply_membership(self, changes):
@@ -137,7 +159,8 @@ class YServerRedditAdapter(PlatformAdapter):
             query = select(Post).where(Post.id > watermark, Post.comment_to == -1, Post.shared_from == -1,
                                        Post.moderated == 0, Post.id.not_in(exported), Post.id.not_in(materialised))
             pending = [p for p in db.session.scalars(query.order_by(Post.id)).all()
-                       if self._active(p.user_id) and (self.export_policy == "all" or self._marked(p.id))]
+                       if self._active(p.user_id) and not self._unmapped_human(p.user_id)
+                       and (self.export_policy == "all" or self._marked(p.id))]
             for seq, post in enumerate(pending):
                 db.session.merge(FederationExport(post_id=post.id, tick=tick, seq=seq))
             db.session.commit()
@@ -199,7 +222,7 @@ class YServerRedditAdapter(PlatformAdapter):
             author = {pid: uid for pid, uid in db.session.execute(select(Post.id, Post.user_id).where(Post.id.in_(list(refs)))).all()}
 
             def add(viewer, pid, kind, exact):
-                if viewer is None or viewer == author.get(pid) or not self._active(viewer):
+                if viewer is None or viewer == author.get(pid) or not self._active(viewer) or self._is_human(viewer):
                     return
                 found.setdefault((viewer, refs[pid], kind), exact)
             for rec in db.session.scalars(select(Recommendations).where(Recommendations.round == rnd.id)).all():
@@ -220,6 +243,10 @@ class YServerRedditAdapter(PlatformAdapter):
             done.value = str(tick)
         db.session.commit()
         return list(db.session.scalars(select(FederationExposure).where(FederationExposure.tick == tick).order_by(FederationExposure.seq)).all())
+
+    def _unmapped_human(self, user_id):
+        """A person with no identity of the federation (no `human:` entry): nothing of it leaves the platform."""
+        return int(user_id) not in self._by_user and self._is_human(user_id)
 
     def _marked(self, post_id):
         from y_server import db
@@ -392,6 +419,8 @@ class YServerRedditAdapter(PlatformAdapter):
         for row in db.session.scalars(select(FederationMembership).where(FederationMembership.state == "active")
                                       .order_by(FederationMembership.user_id)).all():
             uid = row.user_id
+            if self._is_human(uid):
+                continue  # persons are not part of the affective report (INV-15)
             posts = db.session.query(db.func.count(Post.id)).filter(Post.user_id == uid, Post.round >= lo, Post.round <= hi).scalar()
             reacts = db.session.query(db.func.count(Reactions.id)).filter(Reactions.user_id == uid, Reactions.round >= lo,
                                                                          Reactions.round <= hi).scalar()
@@ -416,6 +445,8 @@ class YServerRedditAdapter(PlatformAdapter):
         out = []
         for row in db.session.scalars(select(FederationMembership).where(FederationMembership.state == "active")).all():
             user = db.session.get(User_mgmt, row.user_id)
+            if self._is_human(row.user_id):
+                continue  # a person never churns on its own (INV-15)
             if user is not None and user.left_on is not None and int(user.left_on) <= last:
                 out.append(row.global_agent_id)
         return sorted(out)
@@ -430,7 +461,7 @@ class YServerRedditAdapter(PlatformAdapter):
         wanted = {}
         for gid, value in (multipliers or {}).items():
             uid = self.user_of(gid)
-            if uid is not None and float(value) != 1.0:
+            if uid is not None and float(value) != 1.0 and not self._is_human(uid):
                 wanted[uid] = float(value)
         db.session.query(FederationAttention).delete()
         for uid, value in sorted(wanted.items()):
