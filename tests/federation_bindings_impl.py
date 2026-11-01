@@ -123,3 +123,63 @@ def test_without_a_bindings_file_nothing_changes(client):
     a = YServerRedditAdapter("forum", 1)
     with app.app_context():
         assert a.account_bindings() == [] and a.agent_of(2) == "2" and a.user_of("2") == 2
+
+
+def test_provisioned_accounts_are_created_bound_and_offered_to_a_client_once(bound):
+    from y_server.modals import Interests, User_interest
+
+    req = {"global_agent_id": "40", "username": "newcomer", "interests": ["jazz", "sport"], "oe": "inventive/curious", "leaning": "Democrat",
+           "age": 31, "gender": "female", "nationality": "Italian", "toxicity": "no", "profession": "nurse", "language": "it",
+           "profile": {"co": "organized/efficient"}}
+    done = bound.provision_accounts([req,
+                                     {"global_agent_id": "41", "username": "u1", "interests": []},  # already an account
+                                     {"global_agent_id": "42", "username": "x" * 16, "interests": []}])  # not a username
+    by = {d["global_agent_id"]: d["local_account_id"] for d in done}
+    assert set(by) == {"40", "41"} and by["41"] == "1"
+    uid = int(by["40"])
+    assert bound.agent_of(uid) == "40" and bound.user_of("40") == uid  # bound: the agent acts, no `unbound:` id
+    assert bound._federated(uid) and bound._active(uid)
+    user = db.session.get(User_mgmt, uid)
+    assert (user.oe, user.co, user.leaning, user.age, user.gender, user.nationality, user.profession, user.language, user.toxicity) == \
+           ("inventive/curious", "organized/efficient", "Democrat", 31, "female", "Italian", "nurse", "it", "no")
+    assert user.owner == "federation" and user.user_type == "user" and user.email == "newcomer@federation.local"
+    names = {i.iid: i.interest for i in db.session.query(Interests)}
+    assert sorted(names[r.interest_id] for r in db.session.query(User_interest).filter_by(user_id=uid)) == ["jazz", "sport"]
+    assert [(p["username"], p["interests"]) for p in bound.provisioned_accounts()] == [("newcomer", ["jazz", "sport"])]
+    assert all(o["username"] != "newcomer" for o in bound.account_bindings())  # known: never offered again
+    http = app.test_client()
+    assert [a["username"] for a in http.get("/federation/provisioned").get_json()["accounts"]] == ["newcomer"]
+    assert http.post("/federation/provisioned/adopted", json={"user_ids": [uid]}).status_code == 200
+    assert http.get("/federation/provisioned").get_json()["accounts"] == []
+    bound.mark_adopted([uid])
+    assert bound.provisioned_accounts() == []
+
+
+def test_provisioning_twice_gives_the_same_account_and_creates_nothing_new(bound):
+    req = [{"global_agent_id": "40", "username": "newcomer", "interests": ["jazz"]}]
+    first = bound.provision_accounts(req)
+    users = db.session.query(User_mgmt).count()
+    assert bound.provision_accounts(req) == first and db.session.query(User_mgmt).count() == users
+    assert len(bound.provisioned_accounts()) == 1
+
+
+def test_a_provisioned_account_survives_a_restart_and_acts_through_the_normal_routes(client, tmp_path):
+    path = str(tmp_path / "prov.db")
+    first = YServerRedditAdapter("forum", 1, bindings_file=path)
+    with app.app_context():
+        uid = int(first.provision_accounts([{"global_agent_id": "40", "username": "newcomer", "interests": []}])[0]["local_account_id"])
+        assert YServerRedditAdapter("forum", 1, bindings_file=path).agent_of(uid) == "40"
+        assert all(o["username"] != "newcomer" for o in first.account_bindings())  # the coordinator already knows it
+    _post(client, uid, "hello from a provisioned agent")  # the normal action endpoint accepts the new account
+    with app.app_context():
+        assert db.session.query(Post).filter_by(user_id=uid).count() == 1
+        got = client.post("/get_user", data=json.dumps({"username": "newcomer", "email": "newcomer@federation.local"}))
+        assert got.status_code == 200 and json.loads(got.data)["id"] == uid  # what the client's load=True path reads
+
+
+def test_provisioning_without_a_bindings_file_still_creates_the_account_and_changes_nothing_else(client):
+    a = YServerRedditAdapter("forum", 1)
+    with app.app_context():
+        done = a.provision_accounts([{"global_agent_id": "40", "username": "newcomer", "interests": []}])
+        assert done[0]["global_agent_id"] == "40" and a.agent_of(int(done[0]["local_account_id"])) == "40"
+        assert a.agent_of(2) == "2" and a.user_of("2") == 2  # the rest of the identity map is unchanged

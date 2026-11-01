@@ -14,7 +14,7 @@ Affective report (F4.1): native stress/reward read from the stress_reward table.
 
 import logging
 
-from sqlalchemy import desc, false, or_, select
+from sqlalchemy import desc, false, func, or_, select
 
 from ysocial_federation import quoted as fed_quoted
 from ysocial_federation.bindings import BoundAccountsMixin
@@ -106,6 +106,90 @@ class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
         except Exception:  # noqa: BLE001 - outside an application context nothing marks the account as a person
             return False
         return user is not None and user.user_type == "human"
+
+    # -- accounts created on request (protocol 1.2, INV-19) ---------------------------------
+    # Columns of User_mgmt a request may fill, with their length; absent or empty values keep the column default.
+    _PROFILE_TEXT = (("leaning", 10), ("language", 10), ("gender", 10), ("nationality", 15), ("profession", 50),
+                     ("toxicity", 10), ("education_level", 10), ("oe", 50), ("co", 50), ("ex", 50), ("ag", 50), ("ne", 50))
+
+    @classmethod
+    def _profile_of(cls, req):
+        """Platform extras of a new account from the request payload (top level or nested in `profile`); only what is present."""
+        source = dict(req.get("profile") or {}) if isinstance(req.get("profile"), dict) else {}
+        source.update({k: v for k, v in req.items() if k != "profile"})
+        out = {}
+        for key, size in cls._PROFILE_TEXT:
+            if source.get(key) not in (None, ""):
+                out[key] = str(source[key])[:size]
+        try:
+            if source.get("age") not in (None, ""):
+                out["age"] = int(source["age"])
+        except (TypeError, ValueError):
+            pass
+        return out
+
+    def provision_accounts(self, requests):
+        """Create the account of each agent that decided to join this platform (username = the agent's name) and tell which
+        were created. A name that is already an account here is bound as it is, never duplicated; one that cannot be a
+        username is skipped. The interests of the request become the interests of the account."""
+        import json
+        import secrets
+
+        from y_server import db
+        from y_server.modals import Interests, Rounds, User_interest, User_mgmt
+        from .tables import FederationProvisioned, ensure_tables
+
+        ensure_tables()
+        done = []
+        last = db.session.query(func.max(Rounds.id)).scalar() or 0
+        for req in requests:
+            gid, name = str(req["global_agent_id"]), str(req["username"])
+            user = db.session.query(User_mgmt).filter_by(username=name).first()
+            if user is None:
+                if not name or len(name) > 15:
+                    log.warning("federation: cannot create an account named %r (1-15 characters)", name)
+                    continue
+                interests = [str(t) for t in (req.get("interests") or [])]
+                user = User_mgmt(username=name, email=f"{name}@federation.local", password=secrets.token_hex(8), joined_on=int(last),
+                                 owner="federation", round_actions=3, **self._profile_of(req))
+                db.session.add(user)
+                db.session.flush()
+                for topic in dict.fromkeys(interests):
+                    row = db.session.query(Interests).filter_by(interest=topic).first()
+                    if row is None:
+                        row = Interests(interest=topic)
+                        db.session.add(row)
+                        db.session.flush()
+                    db.session.add(User_interest(user_id=user.id, interest_id=row.iid, round_id=int(last)))
+                db.session.add(FederationProvisioned(user_id=user.id, global_agent_id=gid, username=name,
+                                                     interests_json=json.dumps(interests)[:1000]))
+            db.session.commit()
+            self.record_provisioned(gid, user.id, name)
+            done.append({"global_agent_id": gid, "local_account_id": str(user.id)})
+        return done
+
+    def provisioned_accounts(self):
+        """[{user_id, username, interests, global_agent_id}] created here and not adopted by a client yet."""
+        import json
+
+        from y_server import db
+        from .tables import FederationProvisioned, ensure_tables
+
+        ensure_tables()
+        return [{"user_id": r.user_id, "username": r.username, "global_agent_id": r.global_agent_id,
+                 "interests": json.loads(r.interests_json or "[]")}
+                for r in db.session.query(FederationProvisioned).filter_by(adopted=False).order_by(FederationProvisioned.user_id)]
+
+    def mark_adopted(self, user_ids):
+        from y_server import db
+        from .tables import FederationProvisioned, ensure_tables
+
+        ensure_tables()
+        for uid in user_ids:
+            row = db.session.get(FederationProvisioned, int(uid))
+            if row is not None:
+                row.adopted = True
+        db.session.commit()
 
     # -- membership --------------------------------------------------------------------
     def apply_membership(self, changes):
