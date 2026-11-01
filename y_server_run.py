@@ -34,6 +34,7 @@ def start_server(config):
     app.config["perspective_api"] = config.get("perspective_api")
     app.config["toxicity_annotation"] = config.get("toxicity_annotation", False)
     app.config["sentiment_annotation"] = config.get("sentiment_annotation", False)
+    app.config["share_enabled"] = bool((config.get("share") or {}).get("enabled", False))
     app.config["emotion_annotation"] = config.get("emotion_annotation", False)
     app.config["sync_timeout_seconds"] = config.get("sync_timeout_seconds", 300)
     from y_server.federation import init_federation

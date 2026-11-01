@@ -14,7 +14,7 @@ Affective report (F4.1): native stress/reward read from the stress_reward table.
 
 import logging
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, false, or_, select
 
 from ysocial_federation import quoted as fed_quoted
 from ysocial_federation.adapter import IngestReport, PlatformAdapter
@@ -134,9 +134,13 @@ class YServerRedditAdapter(PlatformAdapter):
         from y_server.modals import Images, Interests, Post_topics, User_mgmt
 
         user = db.session.get(User_mgmt, post.user_id)
+        # a share has no topics of its own: it carries the ones of the thread it shares
+        topic_post = post.id
+        if post.shared_from not in (None, -1) and db.session.scalar(select(Post_topics.id).where(Post_topics.post_id == post.id)) is None:
+            topic_post = post.shared_from
         topics = [i.interest for i in db.session.scalars(
             select(Interests).join(Post_topics, Post_topics.topic_id == Interests.iid)
-            .where(Post_topics.post_id == post.id).order_by(Interests.iid)).all()]
+            .where(Post_topics.post_id == topic_post).order_by(Interests.iid)).all()]
         image = db.session.get(Images, post.image_id) if post.image_id else None
         return {"global_agent_id": self.agent_of(post.user_id),
                 "source_ref": f"ysocial://{self.federation_id}/{self.member}/post/{post.id}",
@@ -156,7 +160,9 @@ class YServerRedditAdapter(PlatformAdapter):
         if not already:  # first call for this tick: choose the posts and fix their sequence numbers
             exported = select(FederationExport.post_id).where(FederationExport.tick.is_not(None))
             materialised = select(FederationRef.local_id).where(FederationRef.local_kind == "post")
-            query = select(Post).where(Post.id > watermark, Post.comment_to == -1, Post.shared_from == -1,
+            marked_ids = select(FederationExport.post_id)  # a share leaves only when the agent marked it (agent_action)
+            query = select(Post).where(Post.id > watermark, Post.comment_to == -1,
+                                       or_(Post.shared_from == -1, Post.id.in_(marked_ids) if self.crosspost_mode == "agent_action" else false()),
                                        Post.moderated == 0, Post.id.not_in(exported), Post.id.not_in(materialised))
             pending = [p for p in db.session.scalars(query.order_by(Post.id)).all()
                        if self._active(p.user_id) and not self._unmapped_human(p.user_id)
@@ -181,14 +187,81 @@ class YServerRedditAdapter(PlatformAdapter):
             content = self._content(post)
             if req.text:
                 content["text_excerpt"] = req.text[:TEXT_EXCERPT_MAX]
-            out.append(Envelope.create(self.federation_id, self.member, req.member, tick, req.seq, "crosspost.v1",
-                                       dict(content, target_account_id=req.account_id)))
+            body = dict(content, target_account_id=req.account_id)
+            quoted = self._quoted(post)
+            if quoted is not None:
+                body["quoted"] = quoted
+            out.append(Envelope.create(self.federation_id, self.member, req.member, tick, req.seq, "crosspost.v1", body))
         if self.emit_exposures:
-            for row in self._exposure_rows(tick):
-                out.append(Envelope.create(self.federation_id, self.member, COORDINATOR, tick, max((e.seq for e in out), default=-1) + 1, "exposure.v1", {
+            quoting = self._quote_pairs(asked)
+            rows = self._exposure_rows(tick)
+            if quoting:
+                rows = rows + self._ensure_quote_exposures(tick, rows, quoting)
+            front = []
+            for row in rows:
+                env = Envelope.create(self.federation_id, self.member, COORDINATOR, tick, max((e.seq for e in out + front), default=-1) + 1, "exposure.v1", {
                     "viewer_global_agent_id": self.agent_of(row.viewer_uid), "source_ref": row.source_ref, "tick": tick,
-                    "exact": bool(row.exact), "kind": row.kind, "tie": row.tie}))
+                    "exact": bool(row.exact), "kind": row.kind, "tie": row.tie})
+                (front if (row.viewer_uid, row.source_ref) in quoting else out).append(env)
+            # the exposure of the agent to the foreign content it quotes leaves before the cross-post that quotes it
+            first = min((i for i, e in enumerate(out) if e.payload_type == "crosspost.v1" and e.payload.get("quoted")), default=len(out))
+            out[first:first] = front
         return out
+
+    def _quote_pairs(self, asked):
+        """{(viewer account, source_ref)} of the cross-posts that quote content materialised on this platform (seen here
+        by the quoting agent, who is neither a person nor inactive)."""
+        from y_server import db
+        from y_server.modals import Post
+        from .tables import FederationRef
+
+        pairs = set()
+        for req in asked:
+            post = db.session.get(Post, req.post_id)
+            quoted = self._quoted(post)
+            if quoted is None or self._is_human(post.user_id) or not self._active(post.user_id):
+                continue
+            if db.session.scalar(select(FederationRef.local_id).where(FederationRef.local_kind == "post", FederationRef.source_ref == quoted["source_ref"])) is not None:
+                pairs.add((post.user_id, quoted["source_ref"]))
+        return pairs
+
+    def _ensure_quote_exposures(self, tick, rows, pairs):
+        """An interact exposure (exact) for each (viewer, ref) pair with no exposure of that viewer to that content yet
+        (this tick or an earlier one). Stored in federation_exposure after the rows of the tick, so a retry gives the same."""
+        from y_server import db
+        from y_server.modals import Post
+        from .tables import FederationExposure, FederationRef
+
+        have = {(r.viewer_uid, r.source_ref) for r in db.session.scalars(select(FederationExposure).where(FederationExposure.tick <= tick)).all()}
+        seq = max((r.seq for r in rows), default=-1) + 1
+        added = []
+        for viewer, ref in sorted(pairs - have):
+            local = db.session.scalar(select(FederationRef.local_id).where(FederationRef.local_kind == "post", FederationRef.source_ref == ref))
+            author = db.session.get(Post, local).user_id
+            row = FederationExposure(tick=tick, seq=seq, viewer_uid=viewer, source_ref=ref, kind="interact", tie=self._tie(viewer, author), exact=True)
+            db.session.add(row)
+            added.append(row)
+            seq += 1
+        db.session.commit()
+        return added
+
+    def _quoted(self, post):
+        """`quoted` of a post that shares another one (None for any other post): the original author, this platform and
+        the original text. The author is a federation identity only when the account is in the identity map and is not a person."""
+        if post.shared_from in (None, -1):
+            return None
+        from y_server import db
+        from y_server.modals import Post, User_mgmt
+        from .tables import FederationRef
+
+        original = db.session.get(Post, post.shared_from)
+        if original is None:
+            return None
+        author = db.session.get(User_mgmt, original.user_id)
+        gid = self._by_user.get(int(original.user_id))
+        ref = db.session.scalar(select(FederationRef.source_ref).where(FederationRef.local_kind == "post", FederationRef.local_id == original.id))
+        ref = ref or f"ysocial://{self.federation_id}/{self.member}/post/{original.id}"
+        return fed_quoted.build(author.username if author is not None else "unknown", gid, self.member, ref, original.tweet)
 
     def _tie(self, viewer, author):
         """none / follow / mutual between a viewer and the author of a post, from the latest follow rows."""
