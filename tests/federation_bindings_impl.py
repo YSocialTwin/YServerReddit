@@ -183,3 +183,14 @@ def test_provisioning_without_a_bindings_file_still_creates_the_account_and_chan
         done = a.provision_accounts([{"global_agent_id": "40", "username": "newcomer", "interests": []}])
         assert done[0]["global_agent_id"] == "40" and a.agent_of(int(done[0]["local_account_id"])) == "40"
         assert a.agent_of(2) == "2" and a.user_of("2") == 2  # the rest of the identity map is unchanged
+
+
+def test_a_provisioned_account_gets_the_recommenders_most_used_on_the_platform(bound):
+    """The model's placeholder "default" is not a recommender: the client could not read the account back on a restart."""
+    for i, (rec, frec) in enumerate((("CommonInterests", "FollowRecSys"), ("CommonInterests", "FollowRecSys"), ("ReverseChrono", "Jaccard"))):
+        db.session.add(User_mgmt(username=f"maj{i}", password="x", email=f"maj{i}@x.org", joined_on=0, recsys_type=rec, frecsys_type=frec))
+    db.session.commit()
+    assert bound._majority_recsys() == {"recsys_type": "CommonInterests", "frecsys_type": "FollowRecSys"}
+    bound.provision_accounts([{"global_agent_id": "88", "username": "newcomer3", "interests": []}])
+    user = db.session.query(User_mgmt).filter_by(username="newcomer3").one()
+    assert (user.recsys_type, user.frecsys_type) == ("CommonInterests", "FollowRecSys")

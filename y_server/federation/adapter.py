@@ -130,6 +130,21 @@ class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
             pass
         return out
 
+    def _majority_recsys(self):
+        """{recsys_type, frecsys_type} most used by the accounts of this platform (never the placeholder "default"), so a
+        provisioned account gets the recommenders of the majority; {} when no account has one yet."""
+        from collections import Counter
+
+        from y_server import db
+        from y_server.modals import User_mgmt
+
+        out = {}
+        for column in ("recsys_type", "frecsys_type"):
+            counts = Counter(v for (v,) in db.session.query(getattr(User_mgmt, column)).all() if v and v != "default")
+            if counts:
+                out[column] = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        return out
+
     def provision_accounts(self, requests):
         """Create the account of each agent that decided to join this platform (username = the agent's name) and tell which
         were created. A name that is already an account here is bound as it is, never duplicated; one that cannot be a
@@ -144,6 +159,7 @@ class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
         ensure_tables()
         done = []
         last = db.session.query(func.max(Rounds.id)).scalar() or 0
+        majority = self._majority_recsys()
         for req in requests:
             gid, name = str(req["global_agent_id"]), str(req["username"])
             user = db.session.query(User_mgmt).filter_by(username=name).first()
@@ -153,7 +169,7 @@ class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
                     continue
                 interests = [str(t) for t in (req.get("interests") or [])]
                 user = User_mgmt(username=name, email=f"{name}@federation.local", password=secrets.token_hex(8), joined_on=int(last),
-                                 owner="federation", round_actions=3, **self._profile_of(req))
+                                 owner="federation", round_actions=3, **{**majority, **self._profile_of(req)})
                 db.session.add(user)
                 db.session.flush()
                 for topic in dict.fromkeys(interests):
@@ -170,8 +186,9 @@ class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
             done.append({"global_agent_id": gid, "local_account_id": str(user.id)})
         return done
 
-    def provisioned_accounts(self):
-        """[{user_id, username, interests, global_agent_id}] created here and not adopted by a client yet."""
+    def provisioned_accounts(self, include_adopted=False):
+        """[{user_id, username, interests, global_agent_id}] created here and not adopted by a client yet (all of them with
+        `include_adopted`: a client that restarts gives an agent again to the accounts it had adopted)."""
         import json
 
         from y_server import db
@@ -180,7 +197,8 @@ class YServerRedditAdapter(BoundAccountsMixin, PlatformAdapter):
         ensure_tables()
         return [{"user_id": r.user_id, "username": r.username, "global_agent_id": r.global_agent_id,
                  "interests": json.loads(r.interests_json or "[]")}
-                for r in db.session.query(FederationProvisioned).filter_by(adopted=False).order_by(FederationProvisioned.user_id)]
+                for r in (db.session.query(FederationProvisioned) if include_adopted
+                          else db.session.query(FederationProvisioned).filter_by(adopted=False)).order_by(FederationProvisioned.user_id)]
 
     def mark_adopted(self, user_ids):
         from y_server import db
