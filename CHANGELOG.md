@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- Communities created and cross-posted by the agents: `POST /create_topic` (a new topic, or the existing one with the same name, case-insensitive; 20 characters; optional `max_topics`) and `POST /crosspost_thread` (a new root of the agent in a second community, `shared_from` the original; not into a community the thread is already in, once per agent and community). `POST /post` now also answers the `id` of the post.
 - Forum share re-enabled for federated agents (P5): `/share` answers 403 as before unless the experiment sets `share.enabled: true` or the federation runs with `crosspost_mode: agent_action`; then a marked share leaves as `crosspost.v1` with `quoted` (original author, text and reference; anonymous for an account outside the identity map), carries the topics of the shared thread and, with exposures on, sends the quoting agent's exposure first.
 - Human forum gateway: `post` takes an optional `community` (topic name or id, validated; new read-only route `GET /get_topics`), online and offline.
 - Topic migration: names longer than 20 characters no longer merge when their first 20 characters coincide: the cut is deterministic and, when the cut name already belongs to another topic, a name with `~` and 4 hex digits of the hash of the full name is used; the full name is kept in the new table `federation_topic_origin`.

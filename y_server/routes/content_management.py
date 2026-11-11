@@ -34,6 +34,7 @@ from y_server.modals import (
     Post_topics,
     Post_Sentiment,
     Interests,
+    User_interest,
     ImagePosts,
     Reported,
     SysMessage,
@@ -1464,7 +1465,7 @@ def add_post():
             post.tweet = text.lstrip().rstrip()
             db.session.commit()
 
-    return json.dumps({"status": 200})
+    return json.dumps({"status": 200, "id": post.id})
 
 
 @app.route(
@@ -3279,3 +3280,128 @@ def get_thread_root():
         return json.dumps({"status": 404})
 
     return json.dumps(_resolve_thread_root_id(post))
+
+# --- communities (topics) created and cross-posted by the agents -------------------------------
+# In the forum a community is a topic (a row of `interests`; `post_topics` puts a thread in it).
+# Both routes are opt-in on the client side: nothing calls them unless the client config asks for it.
+
+TOPIC_NAME_MAX = 20  # interests.interest is a String(20)
+TOPIC_NAME_MIN = 3
+
+
+def _normalize_topic_name(raw):
+    """A community name as the forum stores it: no ``y/``, ``r/`` or ``#``, single spaces, at most 20 characters."""
+    name = re.sub(r"\s+", " ", str(raw or "")).strip().strip("\"'`")
+    name = re.sub(r"^(?:[yr]/|#)", "", name, flags=re.IGNORECASE).strip()
+    name = re.sub(r"[^\w \-.]", "", name, flags=re.UNICODE).strip()
+    return name[:TOPIC_NAME_MAX].strip()
+
+
+def _find_topic_by_name(name):
+    wanted = name.lower()
+    for row in db.session.scalars(select(Interests).order_by(Interests.iid)).all():
+        if (row.interest or "").strip().lower() == wanted:
+            return row
+    return None
+
+
+@app.route("/create_topic", methods=["POST"])
+def create_topic():
+    """
+    Found a new community: a topic that did not exist yet. A name that already exists (case-insensitive) answers the
+    existing topic and creates nothing, so two agents proposing the same name end up in the same community.
+
+    Body: ``user_id``, ``name``, ``tid`` (round), optional ``max_topics`` (0 = no limit).
+    :return: ``{"status": 200, "id", "name", "created"}``; 400 for an unusable name, 404 unknown user, 409 at the limit.
+    """
+    data = json.loads(request.get_data())
+    user = db.session.scalars(select(User_mgmt).filter_by(id=data.get("user_id"))).first()
+    if user is None:
+        return json.dumps({"status": 404, "error": "user not found"}), 404
+    name = _normalize_topic_name(data.get("name"))
+    if len(name) < TOPIC_NAME_MIN:
+        return json.dumps({"status": 400, "error": "invalid topic name"}), 400
+
+    existing = _find_topic_by_name(name)
+    created = existing is None
+    if created:
+        limit = int(data.get("max_topics") or 0)
+        if limit > 0 and (db.session.scalar(select(func.count(Interests.iid))) or 0) >= limit:
+            return json.dumps({"status": 409, "error": "topic limit reached"}), 409
+        existing = Interests(interest=name)
+        db.session.add(existing)
+        db.session.commit()
+    # the founder (or a later proposer of the same name) takes the community among their interests
+    db.session.add(
+        User_interest(user_id=user.id, interest_id=existing.iid, round_id=int(data.get("tid") or 0))
+    )
+    db.session.commit()
+    return json.dumps(
+        {"status": 200, "id": int(existing.iid), "name": existing.interest, "created": created}
+    )
+
+
+def _topics_of_thread(post):
+    """Ids of the communities a root post is in; a share or cross-post is in the ones of the thread it points to."""
+    ids = set(
+        db.session.scalars(select(Post_topics.topic_id).filter_by(post_id=post.id)).all()
+    )
+    if not ids and post.shared_from not in (None, -1):
+        ids = set(
+            db.session.scalars(
+                select(Post_topics.topic_id).filter_by(post_id=post.shared_from)
+            ).all()
+        )
+    return ids
+
+
+@app.route("/crosspost_thread", methods=["POST"])
+def crosspost_thread():
+    """
+    Cross-post a thread to a second community: a new root post of the user, in ``topic_id``, that points to the
+    original through ``shared_from`` (the forum shows it as shared from its author). Cross-posting a cross-post
+    points to the original thread; a community the original is already in, and a thread the user already
+    cross-posted there, are not repeated.
+
+    Body: ``user_id``, ``post_id`` (a root post), ``topic_id``, ``text``, ``tid`` (round).
+    """
+    data = json.loads(request.get_data())
+    user = db.session.scalars(select(User_mgmt).filter_by(id=data.get("user_id"))).first()
+    post = db.session.scalars(select(Post).filter_by(id=data.get("post_id"))).first()
+    topic = db.session.scalars(select(Interests).filter_by(iid=data.get("topic_id"))).first()
+    if user is None or post is None or topic is None:
+        return json.dumps({"status": 404, "error": "user, post or topic not found"}), 404
+    if post.comment_to not in (None, -1):
+        return json.dumps({"status": 400, "error": "only a thread root can be cross-posted"}), 400
+
+    original = post
+    if post.shared_from not in (None, -1):
+        original = db.session.scalars(select(Post).filter_by(id=post.shared_from)).first() or post
+
+    if topic.iid in _topics_of_thread(original):
+        return json.dumps({"status": 409, "error": "the thread is already in this community"}), 409
+
+    for prior in db.session.scalars(
+        select(Post).filter_by(user_id=user.id, shared_from=original.id, comment_to=-1)
+    ).all():
+        if topic.iid in set(
+            db.session.scalars(select(Post_topics.topic_id).filter_by(post_id=prior.id)).all()
+        ):
+            return json.dumps({"status": 200, "id": prior.id, "deduped": True})
+
+    text = _sanitize_generated_text(str(data.get("text") or "").strip('"'), max_len=500)
+    if not text:
+        return _reject_prompt_scaffold("text")
+
+    new_post = Post(
+        tweet=text, round=int(data["tid"]), user_id=user.id, comment_to=-1, shared_from=original.id
+    )
+    db.session.add(new_post)
+    db.session.commit()
+    new_post.thread_id = new_post.id
+    db.session.add(Post_topics(post_id=new_post.id, topic_id=topic.iid))
+    db.session.add(
+        User_interest(user_id=user.id, interest_id=topic.iid, round_id=int(data["tid"]))
+    )
+    db.session.commit()
+    return json.dumps({"status": 200, "id": new_post.id, "topic_id": int(topic.iid)})

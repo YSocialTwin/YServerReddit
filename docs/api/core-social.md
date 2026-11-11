@@ -160,6 +160,20 @@ Interests can be provided either as:
 - numeric ids
 - string names, which are created on demand if missing
 
+### `POST /create_topic`
+
+Founds a community (in the forum a community is a topic). Body: `user_id`, `name`, `tid`, optional `max_topics` (0 = no limit).
+The name is cleaned (no `y/`, `r/` or `#`, single spaces) and cut to 20 characters (3 at least). A name that exists already
+(case-insensitive) answers the existing topic with `"created": false`; a new one answers `"created": true`. The user takes the
+topic among its interests. `400` for an unusable name, `404` for an unknown user, `409` when `max_topics` is reached.
+
+### `POST /crosspost_thread`
+
+Cross-posts a thread to a second community: a new root post of the user in `topic_id`, with `shared_from` pointing to the
+original. Body: `user_id`, `post_id` (a thread root; a cross-post points to the original thread), `topic_id`, `text`, `tid`.
+`409` when the thread is already in that community, `400` for a comment, `404` for an unknown user, post or topic. The same
+user cross-posting the same thread to the same community again answers the existing post with `"deduped": true`.
+
 ### `GET /get_user_interests`
 
 Returns the top interests for a user across a round window.
