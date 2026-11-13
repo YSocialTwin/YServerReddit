@@ -318,6 +318,15 @@ def get_article():
         return json.dumps({"status": 404})
 
 
+def _share_allowed():
+    """Sharing is off in the forum unless the experiment asks for it (`share.enabled`) or the federation lets the
+    agents cross-post by themselves (`crosspost_mode: agent_action`)."""
+    if app.config.get("share_enabled"):
+        return True
+    adapter = app.config.get("federation_adapter")
+    return adapter is not None and getattr(adapter, "crosspost_mode", None) == "agent_action"
+
+
 @app.route(
     "/share",
     methods=["POST", "GET"],
@@ -328,15 +337,16 @@ def share():
 
     :return: a json object with the status of the share
     """
-    return (
-        json.dumps(
-            {
-                "status": 403,
-                "message": "Sharing existing posts is disabled for forum experiments.",
-            }
-        ),
-        403,
-    )
+    if not _share_allowed():
+        return (
+            json.dumps(
+                {
+                    "status": 403,
+                    "message": "Sharing existing posts is disabled for forum experiments.",
+                }
+            ),
+            403,
+        )
 
     data = json.loads(request.get_data())
     account_id = data["user_id"]
@@ -371,6 +381,12 @@ def share():
 
     post.thread_id = post.id
     db.session.commit()
+
+    # federation (opt-in): the agent chose to share this thread, quoting its author, on other platforms
+    if data.get("crosspost") and app.config.get("federation_adapter") is not None:
+        targets = data.get("crosspost_to")
+        adapter = app.config["federation_adapter"]
+        adapter.mark_for_export(post.id, targets) if isinstance(targets, list) else adapter.mark_for_export(post.id)
 
     if should_annotate_toxicity(app.config):
         toxicity(text, app.config.get("perspective_api"), post.id, db, enabled=True)

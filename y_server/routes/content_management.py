@@ -34,6 +34,7 @@ from y_server.modals import (
     Post_topics,
     Post_Sentiment,
     Interests,
+    User_interest,
     ImagePosts,
     Reported,
     SysMessage,
@@ -216,7 +217,9 @@ def _hot_base_score(net_score: int, post_round: int, *, round_decay: float = 12.
         sign = -1.0
     else:
         sign = 0.0
-    return math.log10(abs(int(net_score)) + 1.0) + sign * (
+    # Reddit-style: the sign applies to the vote term only; recency is always added, so
+    # new posts without votes still rank by age instead of falling below any upvoted post.
+    return sign * math.log10(abs(int(net_score)) + 1.0) + (
         float(post_round) / float(round_decay)
     )
 
@@ -874,13 +877,16 @@ def read():
 
     # if no user id is provided, return an empty list
     articles = False
-    if "article" in data:
+    # the client sends "articles"; "article" is kept for backward compatibility
+    if data.get("articles") or data.get("article"):
         articles = True
         # get the user
         us = db.session.scalars(select(User_mgmt).filter_by(id=uid)).first()
         # get news pages ids having the same user leaning
-        pages = db.session.scalars(select(User_mgmt).filter_by(is_page=1, leaning=us.leaning)).all()
-        if pages is not None:
+        if us is not None:
+            pages = db.session.scalars(
+                select(User_mgmt).filter_by(is_page=1, leaning=us.leaning)
+            ).all()
             pages = [x.id for x in pages]
         else:
             pages = []
@@ -963,14 +969,14 @@ def read():
                     Post.user_id.in_(pages),
                 )
                 .order_by(desc(Post.id))
-                .limit(10)
+                .limit(limit)
             ).all()
         else:
             posts = (
                 db.session.query(Post)
                 .filter(Post.round >= visibility, Post.user_id != uid)
                 .order_by(desc(Post.id))
-                .limit(10)
+                .limit(limit)
             ).all()
 
     elif mode == "rchrono_popularity":
@@ -982,7 +988,7 @@ def read():
                     Post.news_id.isnot(None),
                     Post.user_id.in_(pages),
                 )
-                .order_by(desc(Post.id), desc(Post.reaction_count))
+                .order_by(desc(Post.reaction_count), desc(Post.id))
                 .limit(limit)
             ).all()
 
@@ -990,117 +996,44 @@ def read():
             posts = (
                 db.session.query(Post)
                 .filter(Post.round >= visibility, Post.user_id != uid)
-                .order_by(desc(Post.id), desc(Post.reaction_count))
+                .order_by(desc(Post.reaction_count), desc(Post.id))
                 .limit(limit)
             ).all()
 
         posts = [posts, []]
 
-    elif mode == "rchrono_followers":
-        if fratio < 1:
-            follower_posts_limit = int(limit * fratio)
-            additional_posts_limit = limit - follower_posts_limit
+    elif mode in ("rchrono_followers", "rchrono_followers_popularity"):
+        # Followed accounts first (quota ``followers_ratio``), completed with posts from
+        # everybody else. The "_popularity" variant orders by reactions first, then recency.
+        if mode == "rchrono_followers_popularity":
+            ordering = (desc(Post.reaction_count), desc(Post.id))
         else:
-            follower_posts_limit = limit
-            additional_posts_limit = 0
+            ordering = (desc(Post.id),)
 
-        # get followers
-        follower = db.session.scalars(select(Follow).filter_by(action="follow", user_id=uid)).all()
-        follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
+        # followed accounts
+        follower_ids = get_follows(uid)
 
-        # get posts from followers in reverse chronological order
-        if articles:
-            posts = db.session.scalars(
-                select(Post).filter(
-                    Post.round >= visibility,
-                    Post.news_id.isnot(None),
-                    Post.user_id.in_(pages),
-                    Post.user_id.in_(follower_ids),
-                )
-                .order_by(desc(Post.id))
-                .limit(follower_posts_limit)
-            ).all()
-        else:
-            posts = db.session.scalars(
-                select(Post).filter(
-                    Post.round >= visibility, Post.user_id.in_(follower_ids)
-                )
-                .order_by(desc(Post.id))
-                .limit(follower_posts_limit)
-            ).all()
+        def _candidates():
+            q = select(Post).filter(Post.round >= visibility, Post.user_id != uid)
+            if articles:
+                q = q.filter(Post.news_id.isnot(None), Post.user_id.in_(pages))
+            return q
+
+        posts = db.session.scalars(
+            _candidates()
+            .filter(Post.user_id.in_(follower_ids))
+            .order_by(*ordering)
+            .limit(follower_posts_limit)
+        ).all()
 
         if additional_posts_limit != 0:
-            if articles:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(
-                        Post.round >= visibility,
-                        Post.news_id.isnot(None),
-                        Post.user_id != uid,
-                    )
-                    .order_by(desc(Post.id))
-                    .limit(additional_posts_limit)
-                ).all()
-            else:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(Post.round >= visibility, Post.user_id != uid)
-                    .order_by(desc(Post.id))
-                    .limit(additional_posts_limit)
-                ).all()
-
-            posts = [posts, additional_posts]
-
-    elif mode == "rchrono_followers_popularity":
-        if fratio < 1:
-            follower_posts_limit = int(limit * fratio)
-            additional_posts_limit = limit - follower_posts_limit
-        else:
-            follower_posts_limit = limit
-            additional_posts_limit = 0
-
-        # get followers
-        follower = db.session.scalars(select(Follow).filter_by(action="follow", user_id=uid)).all()
-        follower_ids = [f.follower_id for f in follower if f.follower_id != uid]
-
-        # get posts from followers ordered by likes and reverse chronologically
-        if articles:
-            posts = (
-                db.session.query(Post)
-                .filter(
-                    Post.round >= visibility,
-                    Post.news_id.isnot(None),
-                    Post.user_id.in_(pages),
-                )
-                .order(desc(Post.id), desc(Post.reaction_count))
-                .limit(follower_posts_limit)
+            # do not repeat posts already selected from followed accounts
+            additional_posts = db.session.scalars(
+                _candidates()
+                .filter(Post.id.notin_([p.id for p in posts]))
+                .order_by(*ordering)
+                .limit(additional_posts_limit)
             ).all()
-        else:
-            posts = (
-                db.session.query(Post)
-                .filter(Post.round >= visibility, Post.user_id.in_(follower_ids))
-                .order_by(desc(Post.id), desc(Post.reaction_count))
-                .limit(follower_posts_limit)
-            ).all()
-
-        if additional_posts_limit != 0:
-            if articles:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(
-                        Post.round >= visibility,
-                        Post.news_id.isnot(None),
-                        Post.user_id.in_(pages),
-                    )
-                    .order_by(
-                        desc(Post.id),
-                        desc(Post.reaction_count),
-                    )
-                    .limit(additional_posts_limit)
-                ).all()
-            else:
-                additional_posts = db.session.scalars(
-                    select(Post).filter(Post.round >= visibility, Post.user_id != uid)
-                    .order_by(desc(Post.id), desc(Post.reaction_count))
-                    .limit(additional_posts_limit)
-                ).all()
 
             posts = [posts, additional_posts]
 
@@ -1202,43 +1135,28 @@ def read():
         posts = [p for _, _, p in ranked[:limit]]
 
     elif mode == "rchrono_comments":
-        # get posts with the most comments in reverse chronological order (as longer thread)
-        # Use subquery to get distinct threads - PostgreSQL compatible
-        follower_ids = get_follows(uid)
-
-        # Subquery to get max post id per thread (to get one representative post per thread)
-        subquery = (
-            db.session.query(
-                Post.thread_id,
-                func.max(Post.id).label("max_post_id")
-            )
-            .filter(
-                Post.round >= visibility,
-                Post.news_id.isnot(None) if articles else True,
-                Post.user_id.in_(follower_ids),
-            )
-            .group_by(Post.thread_id)
-            .subquery()
+        # Threads ranked by number of comments (ties: newest first); threads of followed
+        # accounts fill the follower quota, the rest comes from everybody else.
+        follower_ids = set(get_follows(uid))
+        candidate_limit = min(4000, max(int(limit) * 12, 400))
+        candidates = db.session.scalars(
+            _base_posts_query(top_level_only=True)
+            .order_by(desc(Post.id))
+            .limit(candidate_limit)
+        ).all()
+        comment_map = _comment_count_map([int(p.thread_id or p.id) for p in candidates])
+        ranked = sorted(
+            candidates,
+            key=lambda p: (comment_map.get(int(p.thread_id or p.id), 0), int(p.id)),
+            reverse=True,
         )
-
-        posts = [
-            db.session.query(Post)
-            .join(subquery, Post.id == subquery.c.max_post_id)
-            .order_by(desc(Post.reaction_count), desc(Post.id))
-            .limit(follower_posts_limit)
-            .all()
-        ]
-
+        posts = [p for p in ranked if p.user_id in follower_ids][:follower_posts_limit]
         if additional_posts_limit != 0:
-            additional_posts = (
-                db.session.query(Post)
-                .join(subquery, Post.id == subquery.c.max_post_id)
-                .order_by(desc(Post.reaction_count), desc(Post.id))
-                .limit(additional_posts_limit)
-                .all()
-            )
-
-            posts = [posts, additional_posts]
+            taken = {p.id for p in posts}
+            posts = [
+                posts,
+                [p for p in ranked if p.id not in taken][:additional_posts_limit],
+            ]
 
     elif mode == "common_interests":
         # get posts with common topic interests
@@ -1476,6 +1394,12 @@ def add_post():
     post.thread_id = post.id
     db.session.commit()
 
+    # federation (opt-in): the agent chose to cross-post this post; without a federation the field is ignored
+    if data.get("crosspost") and app.config.get("federation_adapter") is not None:
+        adapter = app.config["federation_adapter"]
+        targets = data.get("crosspost_to")
+        adapter.mark_for_export(post.id, targets) if isinstance(targets, list) else adapter.mark_for_export(post.id)
+
     for topic_id in topics:
         tp = Post_topics(post_id=post.id, topic_id=topic_id)
         db.session.add(tp)
@@ -1541,7 +1465,7 @@ def add_post():
             post.tweet = text.lstrip().rstrip()
             db.session.commit()
 
-    return json.dumps({"status": 200})
+    return json.dumps({"status": 200, "id": post.id})
 
 
 @app.route(
@@ -3329,6 +3253,17 @@ def get_post_topics():
     return json.dumps(res)
 
 
+@app.route("/get_topics", methods=["GET", "POST"])
+def get_topics():
+    """
+    List the topics (the communities of the forum) that exist on this server.
+
+    :return: a json list of {"id", "name"}, by id
+    """
+    rows = db.session.scalars(select(Interests).order_by(Interests.iid)).all()
+    return json.dumps([{"id": r.iid, "name": r.interest} for r in rows])
+
+
 @app.route("/get_thread_root", methods=["GET"])
 def get_thread_root():
     """
@@ -3345,3 +3280,128 @@ def get_thread_root():
         return json.dumps({"status": 404})
 
     return json.dumps(_resolve_thread_root_id(post))
+
+# --- communities (topics) created and cross-posted by the agents -------------------------------
+# In the forum a community is a topic (a row of `interests`; `post_topics` puts a thread in it).
+# Both routes are opt-in on the client side: nothing calls them unless the client config asks for it.
+
+TOPIC_NAME_MAX = 20  # interests.interest is a String(20)
+TOPIC_NAME_MIN = 3
+
+
+def _normalize_topic_name(raw):
+    """A community name as the forum stores it: no ``y/``, ``r/`` or ``#``, single spaces, at most 20 characters."""
+    name = re.sub(r"\s+", " ", str(raw or "")).strip().strip("\"'`")
+    name = re.sub(r"^(?:[yr]/|#)", "", name, flags=re.IGNORECASE).strip()
+    name = re.sub(r"[^\w \-.]", "", name, flags=re.UNICODE).strip()
+    return name[:TOPIC_NAME_MAX].strip()
+
+
+def _find_topic_by_name(name):
+    wanted = name.lower()
+    for row in db.session.scalars(select(Interests).order_by(Interests.iid)).all():
+        if (row.interest or "").strip().lower() == wanted:
+            return row
+    return None
+
+
+@app.route("/create_topic", methods=["POST"])
+def create_topic():
+    """
+    Found a new community: a topic that did not exist yet. A name that already exists (case-insensitive) answers the
+    existing topic and creates nothing, so two agents proposing the same name end up in the same community.
+
+    Body: ``user_id``, ``name``, ``tid`` (round), optional ``max_topics`` (0 = no limit).
+    :return: ``{"status": 200, "id", "name", "created"}``; 400 for an unusable name, 404 unknown user, 409 at the limit.
+    """
+    data = json.loads(request.get_data())
+    user = db.session.scalars(select(User_mgmt).filter_by(id=data.get("user_id"))).first()
+    if user is None:
+        return json.dumps({"status": 404, "error": "user not found"}), 404
+    name = _normalize_topic_name(data.get("name"))
+    if len(name) < TOPIC_NAME_MIN:
+        return json.dumps({"status": 400, "error": "invalid topic name"}), 400
+
+    existing = _find_topic_by_name(name)
+    created = existing is None
+    if created:
+        limit = int(data.get("max_topics") or 0)
+        if limit > 0 and (db.session.scalar(select(func.count(Interests.iid))) or 0) >= limit:
+            return json.dumps({"status": 409, "error": "topic limit reached"}), 409
+        existing = Interests(interest=name)
+        db.session.add(existing)
+        db.session.commit()
+    # the founder (or a later proposer of the same name) takes the community among their interests
+    db.session.add(
+        User_interest(user_id=user.id, interest_id=existing.iid, round_id=int(data.get("tid") or 0))
+    )
+    db.session.commit()
+    return json.dumps(
+        {"status": 200, "id": int(existing.iid), "name": existing.interest, "created": created}
+    )
+
+
+def _topics_of_thread(post):
+    """Ids of the communities a root post is in; a share or cross-post is in the ones of the thread it points to."""
+    ids = set(
+        db.session.scalars(select(Post_topics.topic_id).filter_by(post_id=post.id)).all()
+    )
+    if not ids and post.shared_from not in (None, -1):
+        ids = set(
+            db.session.scalars(
+                select(Post_topics.topic_id).filter_by(post_id=post.shared_from)
+            ).all()
+        )
+    return ids
+
+
+@app.route("/crosspost_thread", methods=["POST"])
+def crosspost_thread():
+    """
+    Cross-post a thread to a second community: a new root post of the user, in ``topic_id``, that points to the
+    original through ``shared_from`` (the forum shows it as shared from its author). Cross-posting a cross-post
+    points to the original thread; a community the original is already in, and a thread the user already
+    cross-posted there, are not repeated.
+
+    Body: ``user_id``, ``post_id`` (a root post), ``topic_id``, ``text``, ``tid`` (round).
+    """
+    data = json.loads(request.get_data())
+    user = db.session.scalars(select(User_mgmt).filter_by(id=data.get("user_id"))).first()
+    post = db.session.scalars(select(Post).filter_by(id=data.get("post_id"))).first()
+    topic = db.session.scalars(select(Interests).filter_by(iid=data.get("topic_id"))).first()
+    if user is None or post is None or topic is None:
+        return json.dumps({"status": 404, "error": "user, post or topic not found"}), 404
+    if post.comment_to not in (None, -1):
+        return json.dumps({"status": 400, "error": "only a thread root can be cross-posted"}), 400
+
+    original = post
+    if post.shared_from not in (None, -1):
+        original = db.session.scalars(select(Post).filter_by(id=post.shared_from)).first() or post
+
+    if topic.iid in _topics_of_thread(original):
+        return json.dumps({"status": 409, "error": "the thread is already in this community"}), 409
+
+    for prior in db.session.scalars(
+        select(Post).filter_by(user_id=user.id, shared_from=original.id, comment_to=-1)
+    ).all():
+        if topic.iid in set(
+            db.session.scalars(select(Post_topics.topic_id).filter_by(post_id=prior.id)).all()
+        ):
+            return json.dumps({"status": 200, "id": prior.id, "deduped": True})
+
+    text = _sanitize_generated_text(str(data.get("text") or "").strip('"'), max_len=500)
+    if not text:
+        return _reject_prompt_scaffold("text")
+
+    new_post = Post(
+        tweet=text, round=int(data["tid"]), user_id=user.id, comment_to=-1, shared_from=original.id
+    )
+    db.session.add(new_post)
+    db.session.commit()
+    new_post.thread_id = new_post.id
+    db.session.add(Post_topics(post_id=new_post.id, topic_id=topic.iid))
+    db.session.add(
+        User_interest(user_id=user.id, interest_id=topic.iid, round_id=int(data["tid"]))
+    )
+    db.session.commit()
+    return json.dumps({"status": 200, "id": new_post.id, "topic_id": int(topic.iid)})
