@@ -33,6 +33,40 @@ class ForumStandard(PlatformProvider):
     icon = "message-square"
     order = 20
 
+    def agent_resource_cards(self) -> list:
+        from sqlalchemy import func, select
+        from y_web import db
+        from y_web.src.models import ForumImageFeedResource
+
+        count = db.session.scalar(
+            select(func.count()).select_from(ForumImageFeedResource)
+        )
+        return [
+            {
+                "title": _("Forum Image Feeds"),
+                "subtitle": _("Built-in resource"),
+                "icon": "mdi-image-multiple-outline",
+                "tone": "is-info",
+                "description": _(
+                    "Register reusable subreddit-based image feeds for forum experiments, including interest tags used during image ingestion."
+                ),
+                "highlights": [
+                    _("%(count)s reusable image feeds available", count=count),
+                    _("Subreddit validation is done before assignment"),
+                    _("The same subreddit definition can be reused safely"),
+                ],
+                "cta_label": _("Manage Image Resources"),
+                "cta_href": "/admin/forum_image_resources",
+                "secondary_label": _(
+                    "Maintain the canonical image-feed catalog here and assign only the feeds needed by each forum simulation."
+                ),
+                "meta": {},
+                "deployment_tags": [self.key],
+                "is_plugin": False,
+                "image_feed_count": count,
+            }
+        ]
+
     @property
     def human_gateway(self):
         """How a person of a World Simulation gets an account here and acts (``gateway.py``)."""
@@ -48,6 +82,7 @@ class ForumStandard(PlatformProvider):
     stress_reward_in_form = True
     legacy_shared_client_log = True
     recsys_includes_standard = True
+    tag_runtime_sets = (("forum_server", "forum_client"),)
     federation_traits = FederationTraits(
         mdi_icon="mdi-forum-outline",
         local_kind="post",
