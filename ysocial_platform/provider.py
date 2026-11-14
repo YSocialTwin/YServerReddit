@@ -32,6 +32,12 @@ class ForumStandard(PlatformProvider):
     label = N_("Forum")
     icon = "message-square"
     order = 20
+
+    @property
+    def human_gateway(self):
+        """How a person of a World Simulation gets an account here and acts (``gateway.py``)."""
+        return importlib.import_module(f"{__package__}.gateway").HUMAN_GATEWAY
+
     federation_traits = FederationTraits(
         mdi_icon="mdi-forum-outline",
         local_kind="post",
@@ -43,6 +49,7 @@ class ForumStandard(PlatformProvider):
         title_line=True,
         decision_triggers=("publish", "interaction"),
         simulators=(STANDARD,),
+        topic_migration_key="topic_migration",
     )
     library_package = f"{__package__}.forum"
     configures_memory = True

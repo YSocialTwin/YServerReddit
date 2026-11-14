@@ -1275,7 +1275,9 @@ def api_post(exp_id: int):
         )
         from y_web.sdk.models import Exps as _Exps
 
-        _community = _ho.forum_community(
+        from .. import gateway as _gateway
+
+        _community = _gateway.community_of(
             db.session.get(_Exps, int(exp_id)), community_slug
         )
         _sent = _ho.try_deliver(
@@ -1283,7 +1285,7 @@ def api_post(exp_id: int):
             current_user,
             _ho.requested_members(_wanted),
             _plain,
-            lambda t: _ho.forum_post(content, t, _community),
+            lambda t: _gateway.post(content, t, _community),
             only="forum",
         )
         if _sent is not None:
