@@ -102,6 +102,12 @@ class ForumStandard(PlatformProvider):
     def entry_url(self, exp_id: int, user_id: int) -> Optional[str]:
         return f"/{exp_id}/rfeed/{user_id}/feed/rf/1"
 
+    slug_username_fallback = "forum_user"
+    threaded_posts = True
+
+    def feed_home_url(self, exp_id: int) -> Optional[str]:
+        return f"/{exp_id}/rfeed/all/feed/rf/1?feed_type=new"
+
     has_interview = True
 
     def interview_redirect(self, exp_id: int) -> str:
