@@ -14,9 +14,11 @@ from flask import abort, flash, jsonify, redirect, render_template, request, url
 from flask_login import current_user, login_required
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.sql.expression import func
+
 from y_web.sdk import gettext as _
 from y_web.sdk import routes
 from y_web.sdk.models import db
+from y_web.sdk.web import choose_active_experiment
 
 main = routes.blueprint("main")
 from y_web.sdk.commons.ids import opaque_id
@@ -474,15 +476,16 @@ def feeed_logged_reddit():
         Redirect to Reddit feed with experiment ID
     """
     # Get active experiments
-    exps = db.session.scalars(select(Exps).filter(Exps.status != 0)).all()
+    exps = db.session.scalars(
+        select(Exps).filter(Exps.status != 0, Exps.platform_type == "forum")
+    ).all()
     if not exps:
         flash(_("No active experiment. Please activate an experiment first."))
         return redirect("/admin/experiments")
 
-    if len(exps) > 1:
+    exp = choose_active_experiment(exps)
+    if exp is None:
         return redirect("/admin/join_simulation")
-
-    exp = exps[0]
     return redirect(
         f"/{exp.idexp}/rfeed/all/feed/rf/1?feed_type={_forum_default_feed_type(exp.idexp)}"
     )
@@ -491,13 +494,16 @@ def feeed_logged_reddit():
 @main.get("/rnotifications")
 @login_required
 def rnotifications_logged():
-    exps = db.session.scalars(select(Exps).filter(Exps.status != 0)).all()
+    exps = db.session.scalars(
+        select(Exps).filter(Exps.status != 0, Exps.platform_type == "forum")
+    ).all()
     if not exps:
         flash(_("No active experiment. Please activate an experiment first."))
         return redirect("/admin/experiments")
-    if len(exps) > 1:
+    exp = choose_active_experiment(exps)
+    if exp is None:
         return redirect("/admin/join_simulation")
-    return redirect(f"/{exps[0].idexp}/rnotifications")
+    return redirect(f"/{exp.idexp}/rnotifications")
 
 
 @main.get("/<int:exp_id>/rnotifications")
