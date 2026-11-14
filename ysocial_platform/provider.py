@@ -38,6 +38,8 @@ class ForumStandard(PlatformProvider):
         """How a person of a World Simulation gets an account here and acts (``gateway.py``)."""
         return importlib.import_module(f"{__package__}.gateway").HUMAN_GATEWAY
 
+    server_label = "YServerReddit"
+    feeds_read_at_client_start = True
     federation_traits = FederationTraits(
         mdi_icon="mdi-forum-outline",
         local_kind="post",
