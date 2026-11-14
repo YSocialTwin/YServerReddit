@@ -40,6 +40,14 @@ class ForumStandard(PlatformProvider):
 
     server_label = "YServerReddit"
     feeds_read_at_client_start = True
+    runtime_keys = ("forum_server", "forum_client")
+    embedding_in_details = True
+    avatar_settings_page = True
+    plugin_agents = True
+    stress_reward_page = True
+    stress_reward_in_form = True
+    legacy_shared_client_log = True
+    recsys_includes_standard = True
     federation_traits = FederationTraits(
         mdi_icon="mdi-forum-outline",
         local_kind="post",
