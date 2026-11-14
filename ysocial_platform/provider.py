@@ -1,8 +1,8 @@
 """The forum platform on the Flask runtime ("Standard", YServerReddit/YClientReddit): what YSocial needs to run, show
 and manage a Standard forum experiment.
 
-The Ray runtime of the forum (YForum, "HPC") has its own provider in its repository; the two are variants of the same
-platform key. The provider is declared in ``meta/registry.json`` (``platform`` section) and loaded by YSocial at
+Another repository may serve the same platform key on another runtime: the two share nothing but the key (each has
+its own provider, library, pages and templates). The provider is declared in ``meta/registry.json`` (``platform`` section) and loaded by YSocial at
 startup. It talks to the core through ``y_web.sdk`` only; the pages of the platform (``routes/``, ``templates/``,
 ``static/``) and the forum library (``forum/``) are part of this repository.
 """
@@ -75,6 +75,9 @@ class ForumStandard(PlatformProvider):
     server_label = "YServerReddit"
     feeds_read_at_client_start = True
     runtime_keys = ("forum_server", "forum_client")
+    runtime_pair_description = N_(
+        "Legacy forum simulator on Flask (threads and replies). Server and client are installed and updated independently from its page."
+    )
     embedding_in_details = True
     avatar_settings_page = True
     plugin_agents = True

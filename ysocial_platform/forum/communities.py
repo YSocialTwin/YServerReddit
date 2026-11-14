@@ -1,6 +1,6 @@
 """The ``communities`` section of a forum client configuration (opt-in, off by default).
 
-Two actions of the agents, read by YClientReddit (Standard forum) and YForum (HPC forum) from the key ``communities``:
+Two actions of the agents, read by the clients of the forum runtimes from the key ``communities``:
 
 * ``creation``: before a post an agent founds, with ``probability``, a new thematic community (a topic); ``max_topics``
   caps the communities of the forum (0 = no cap);

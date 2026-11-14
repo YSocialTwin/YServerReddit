@@ -8,7 +8,6 @@ import numpy as np
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import select
-from y_web.platforms import registry as platforms
 from y_web.sdk import gettext as _
 from y_web.sdk import routes
 from y_web.sdk.agents import summarize_agent_custom_features_bulk
@@ -88,7 +87,8 @@ def clients_forum(idexp):
 
 def _create_forum_client_internal():
     """Create a forum client with its dedicated configuration pipeline."""
-    forum_communities = platforms.library("forum", "communities")
+    from ..forum import communities as forum_communities
+
     check_privileges(current_user.username)
 
     name = request.form.get("name")
