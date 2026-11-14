@@ -17,6 +17,7 @@ from y_web.sdk import (
     N_,
     STANDARD,
     CreationRules,
+    FederationTraits,
     PlatformProvider,
     StandardRuntime,
 )
@@ -31,6 +32,18 @@ class ForumStandard(PlatformProvider):
     label = N_("Forum")
     icon = "message-square"
     order = 20
+    federation_traits = FederationTraits(
+        mdi_icon="mdi-forum-outline",
+        local_kind="post",
+        author_sql="SELECT p.id, u.username, p.user_id FROM post p LEFT JOIN user_mgmt u ON u.id = p.user_id WHERE p.id IN ({q})",
+        content_path="/{exp}/rthread/{id}",
+        profile_path="/{exp}/profile/{account}/recent/1",
+        account_sql="SELECT id, username FROM user_mgmt WHERE id = ?",
+        text_limit=2000,
+        title_line=True,
+        decision_triggers=("publish", "interaction"),
+        simulators=(STANDARD,),
+    )
     library_package = f"{__package__}.forum"
     configures_memory = True
 
