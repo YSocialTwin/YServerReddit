@@ -34,6 +34,32 @@ class ForumStandard(PlatformProvider):
     icon = "message-square"
     order = 20
 
+    # the pages the participants share: what the forum shows differently (``profile.py``)
+    reads_server_config = True
+    accepts_account_id_login = True
+
+    def _profile(self):
+        return importlib.import_module(f"{__package__}.profile")
+
+    def profile_picture(self, user):
+        from y_web.sdk import social
+
+        return social.profile_pic_of(user)
+
+    def discussion_community(self, article, topics):
+        from y_web.sdk import social
+
+        return social.primary_community(article, topics)
+
+    def render_profile(self, exp, context):
+        return self._profile().render_profile(self, exp, context)
+
+    def render_edit_profile(self, exp, context):
+        return self._profile().render_edit_profile(self, exp, context)
+
+    def page_context(self, exp, ui):
+        return self._profile().page_context(ui)
+
     @property
     def recsys_catalog(self):
         """The recommenders this platform adds to the catalogue (``catalog.py``)."""
