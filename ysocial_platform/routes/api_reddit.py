@@ -95,7 +95,7 @@ try:
 except ImportError:
     ContentShown = None
 
-api_reddit = routes.blueprint("api_reddit")
+api_reddit = routes.blueprint("api_reddit", url_prefix="/api/reddit")
 
 _ALLOWED_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 _ALLOWED_VIDEO_EXTS = (".mp4",)

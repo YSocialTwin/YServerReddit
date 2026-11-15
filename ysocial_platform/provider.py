@@ -34,6 +34,16 @@ class ForumStandard(PlatformProvider):
     icon = "message-square"
     order = 20
 
+    default_persona_vibe = (
+        "casual fun subreddit; stay on-topic; short replies; "
+        "avoid unrelated politics/history unless the thread explicitly calls for it"
+    )
+
+    def profile_picture_in(self, user, exp_id):
+        from y_web.sdk import social
+
+        return social.profile_pic_in_experiment(user, exp_id)
+
     # the pages the participants share: what the forum shows differently (``profile.py``)
     reads_server_config = True
     accepts_account_id_login = True
