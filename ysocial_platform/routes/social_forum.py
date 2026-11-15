@@ -55,7 +55,7 @@ from y_web.sdk.social import (
     augment_text,
     build_thread_tree,
 )
-from y_web.sdk.social import current_profile_pic as _forum_current_profile_pic
+from ..forum.avatars import current_profile_pic as _forum_current_profile_pic
 from y_web.sdk.social import experiment_memory_enabled as _experiment_memory_enabled
 from y_web.sdk.social import feed_memory_enabled as _forum_memory_enabled
 from y_web.sdk.social import get_discussions as _get_discussions
@@ -67,7 +67,7 @@ from y_web.sdk.social import (
     is_admin,
 )
 from y_web.sdk.social import logged_user as _forum_logged_user
-from y_web.sdk.social import profile_pic_of as _forum_profile_pic
+from ..forum.avatars import profile_pic_of as _forum_profile_pic
 from y_web.sdk.social import resolve_back_url as _forum_resolve_back_url
 from y_web.sdk.web import load_ui_settings as _load_ui_settings
 

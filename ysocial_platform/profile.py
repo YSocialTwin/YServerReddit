@@ -12,6 +12,8 @@ from flask_login import current_user
 from y_web.sdk import social, template_name
 from y_web.sdk.commons import service
 
+from .forum import avatars
+
 
 def render_profile(provider, exp, context):
     user = context["user"]
@@ -33,9 +35,9 @@ def render_profile(provider, exp, context):
     )
     return render_template(
         template_name(provider.provider_id, "forum/profile.html"),
-        profile_pic=social.current_profile_pic(exp_id, logged),
+        profile_pic=avatars.current_profile_pic(exp_id, logged),
         viewed_profile_pic=context["profile_pic"],
-        profile_pic_feed=social.current_profile_pic(exp_id, logged),
+        profile_pic_feed=avatars.current_profile_pic(exp_id, logged),
         profile_delete_inline=True,
         feed_user_id=None,
         timeline="profile",

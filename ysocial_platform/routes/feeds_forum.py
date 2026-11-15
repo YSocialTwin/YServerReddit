@@ -18,8 +18,6 @@ from y_web.sdk import gettext as _
 from y_web.sdk import routes
 from y_web.sdk.feeds import (
     default_feed_limits,
-    normalize_force_placeholder,
-    normalize_forum_avatar_mode,
     normalize_image_feed_item,
     normalize_image_feeds_payload,
     normalize_rss_feed_item,
@@ -32,6 +30,11 @@ from y_web.sdk.models import ForumImageFeedResource, ForumRssFeedResource, db
 from y_web.sdk.web import check_privileges
 from y_web.sdk.web import load_feed_experiment_context as _load_forum_experiment_context
 from y_web.sdk.web import provider_template
+
+from ..forum.avatars import (  # noqa: E402
+    normalize_force_placeholder,
+    normalize_forum_avatar_mode,
+)
 
 experiments = routes.blueprint("experiments")
 

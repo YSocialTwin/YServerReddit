@@ -40,9 +40,7 @@ class ForumStandard(PlatformProvider):
     )
 
     def profile_picture_in(self, user, exp_id):
-        from y_web.sdk import social
-
-        return social.profile_pic_in_experiment(user, exp_id)
+        return self.library("avatars").resolve_forum_profile_pic(user, exp_id)
 
     # the pages the participants share: what the forum shows differently (``profile.py``)
     reads_server_config = True
@@ -52,9 +50,7 @@ class ForumStandard(PlatformProvider):
         return importlib.import_module(f"{__package__}.profile")
 
     def profile_picture(self, user):
-        from y_web.sdk import social
-
-        return social.profile_pic_of(user)
+        return self.library("avatars").profile_pic_of(user)
 
     def discussion_community(self, article, topics):
         from y_web.sdk import social
@@ -217,14 +213,21 @@ class ForumStandard(PlatformProvider):
     frontend_exclusive_settings = frozenset(
         {"default_forum_feed_type"}
     )  # feed ordering
-    details_context_keys = ("forum_feed_health",)
+    details_context_keys = ("forum_feed_health", "forum_avatar_settings")
 
     def details_context(self, experiment: Any) -> dict:
+        context = {"forum_feed_health": None, "forum_avatar_settings": None}
         try:
             exp_folder = services.experiment_folder(experiment)
-            return {"forum_feed_health": web.read_feed_health(experiment, exp_folder)}
+            context["forum_feed_health"] = web.read_feed_health(experiment, exp_folder)
+            context["forum_avatar_settings"] = self.library(
+                "avatars"
+            ).read_avatar_settings(exp_folder)
         except Exception:
-            return {"forum_feed_health": None}
+            context["forum_avatar_settings"] = self.library(
+                "avatars"
+            ).read_avatar_settings(None)
+        return context
 
     standard_runtime = StandardRuntime(
         server_repo="YServerReddit",
