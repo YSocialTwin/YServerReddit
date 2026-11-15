@@ -163,6 +163,7 @@ class ForumStandard(PlatformProvider):
         return f"/{exp_id}/rfeed/{user_id}/feed/rf/1"
 
     slug_username_fallback = "forum_user"
+    experiment_free_paths = ("/rfeed", "/rnotifications")
     @property
     def threads(self):
         return self.library("threads")

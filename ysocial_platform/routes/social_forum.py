@@ -68,7 +68,6 @@ from y_web.sdk.social import (
 )
 from y_web.sdk.social import logged_user as _forum_logged_user
 from ..forum.avatars import profile_pic_of as _forum_profile_pic
-from y_web.sdk.social import resolve_back_url as _forum_resolve_back_url
 from y_web.sdk.web import load_ui_settings as _load_ui_settings
 
 from ..forum.community_icons import assign_icons, icon_for
@@ -172,6 +171,18 @@ def _resolve_sidebar_community(items, community_slug):
             return community
     return {"slug": slug, "label": f"y/{slug}", "kind": "topic"}
 
+
+
+def _resolve_feed_back_url(exp_id):
+    back_url = (request.args.get("back") or "").strip()
+    if back_url.startswith(f"/{exp_id}/rfeed") or back_url.startswith(
+        f"/{exp_id}/rsearch"
+    ):
+        return back_url
+    referrer = (request.referrer or "").strip()
+    if f"/{exp_id}/rfeed" in referrer or f"/{exp_id}/rsearch" in referrer:
+        return referrer
+    return f"/{exp_id}/rfeed/all/feed/rf/1?feed_type=new"
 
 @main.get("/<int:exp_id>/rthread/<post_id>")
 @login_required
@@ -449,7 +460,7 @@ def get_thread_reddit(exp_id, post_id):
         mentions=mentions,
         is_admin=is_admin(current_user.username),
         exp_id=exp_id,
-        back_url=_forum_resolve_back_url(exp_id),
+        back_url=_resolve_feed_back_url(exp_id),
         forum_memory_enabled=_forum_memory_enabled(exp_id),
         recent_communities=fetch_recent_active_communities(),
         my_communities=fetch_user_communities(
