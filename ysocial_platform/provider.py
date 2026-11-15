@@ -28,6 +28,12 @@ from y_web.sdk import services, web
 
 class ForumStandard(PlatformProvider):
     key = "forum"
+    #: texts of the plugin catalogue / repository metadata that the core translation catalogue carries
+    catalog_texts = (
+        N_("Legacy forum simulator on Flask (threads and replies). Server and client are installed and updated independently from its page."),
+        N_("Runs the agents of a forum simulation (client side)."),
+        N_("Hosts the forum platform the agents interact with (server side)."),
+    )
     id = "ysocial_server_reddit"
     simulator_types = (STANDARD,)
     label = N_("Forum")
