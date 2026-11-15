@@ -35,6 +35,7 @@ class ForumStandard(PlatformProvider):
 
     def agent_resource_cards(self) -> list:
         from sqlalchemy import func, select
+
         from y_web import db
         from y_web.src.models import ForumImageFeedResource
 
@@ -71,6 +72,11 @@ class ForumStandard(PlatformProvider):
     def human_gateway(self):
         """How a person of a World Simulation gets an account here and acts (``gateway.py``)."""
         return importlib.import_module(f"{__package__}.gateway").HUMAN_GATEWAY
+
+    @property
+    def human_recsys(self):
+        """The recommender systems of the people who use the frontend (``recsys/``)."""
+        return importlib.import_module(f"{__package__}.recsys").RECSYS
 
     server_label = "YServerReddit"
     feeds_read_at_client_start = True

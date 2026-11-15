@@ -20,6 +20,8 @@ from y_web.sdk import routes
 from y_web.sdk.models import db
 from y_web.sdk.web import choose_active_experiment
 
+from ..recsys import RECSYS, get_suggested_users
+
 main = routes.blueprint("main")
 from y_web.sdk.commons.ids import opaque_id
 from y_web.sdk.commons.ordering import seq_or_id
@@ -59,7 +61,6 @@ from y_web.sdk.social import feed_memory_enabled as _forum_memory_enabled
 from y_web.sdk.social import get_discussions as _get_discussions
 from y_web.sdk.social import (
     get_elicited_emotions,
-    get_suggested_users,
     get_topics,
     get_trending_hashtags,
     get_unanswered_mentions,
