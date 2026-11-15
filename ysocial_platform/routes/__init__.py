@@ -11,6 +11,7 @@ from . import (  # noqa: F401
     clients_forum_details,
     clients_forum_opinion,
     experiments_forum,
+    feeds_forum,
     interactions_forum,
     social_forum,
 )
