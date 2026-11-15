@@ -18,6 +18,7 @@ from y_web.sdk import (
     STANDARD,
     CreationRules,
     FederationTraits,
+    FrontendSetting,
     PlatformProvider,
     StandardRuntime,
 )
@@ -33,9 +34,22 @@ class ForumStandard(PlatformProvider):
     icon = "message-square"
     order = 20
 
+    # what the admin "frontend settings" page offers for this platform (the box is in templates/slots/)
+    frontend_settings = (
+        FrontendSetting(
+            "default_forum_feed_type",
+            "new",
+            choices=(
+                {"name": "new", "label": N_("New")},
+                {"name": "hot", "label": N_("Hot")},
+                {"name": "top", "label": N_("Top")},
+                {"name": "most_commented", "label": N_("Most commented")},
+            ),
+        ),
+    )
+
     def agent_resource_cards(self) -> list:
         from sqlalchemy import func, select
-
         from y_web import db
         from y_web.src.models import ForumImageFeedResource
 
