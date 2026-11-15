@@ -39,6 +39,22 @@ class ForumStandard(PlatformProvider):
     label = N_("Forum")
     icon = "message-square"
     order = 20
+    frontend_annotations_hint = N_(
+        "Choose which metadata chips are displayed below each post and comment."
+    )
+    frontend_labels = {
+        "interaction_like": (N_("Upvote"), N_("Up-arrow vote on posts and comments")),
+        "interaction_dislike": (
+            N_("Downvote"),
+            N_("Down-arrow vote on posts and comments"),
+        ),
+        "interaction_comment": (
+            N_("Comment / reply"),
+            N_("Reply to threads and to other comments"),
+        ),
+    }
+    menu_label = N_("Forum (i.e., Reddit)")
+    client_form_fields = frozenset({"share_link"})
 
     default_persona_vibe = (
         "casual fun subreddit; stay on-topic; short replies; "

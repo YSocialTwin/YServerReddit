@@ -295,7 +295,7 @@
                                             <!-- Body Text Field -->
                                             <div class="reddit-field">
                                                 <textarea
-                                                    id="publish"
+                                                    id="publish" data-ws-source
                                                     class="reddit-textarea body-textarea"
                                                     placeholder="{{ _('Text (optional)') }}"
                                                     rows="4"
@@ -326,7 +326,7 @@
                                             <!-- Link URL Field (Link posts) -->
                                             <div id="link-url-wrapper" class="reddit-field is-hidden">
                                                 <input
-                                                    id="link-url"
+                                                    id="link-url" data-ws-link
                                                     type="url"
                                                     class="reddit-input url-input"
                                                     placeholder="{{ _('Link URL*') }}"
@@ -347,7 +347,7 @@
 
                                             <div id="image-url-wrapper" class="reddit-field is-hidden">
                                                 <input
-                                                    id="image-url"
+                                                    id="image-url" data-ws-link
                                                     type="url"
                                                     class="reddit-input image-input"
                                                     placeholder="{{ _('Media URL*') }}"
@@ -559,7 +559,7 @@
                                                 id="link-autocpl-wrapper"
                                                 class="control is-location-wrapper has-margin">
                     <textarea
-                            id="link_post"
+                            id="link_post" data-ws-link
                             rows="1"
                             class="textarea"
                             placeholder="{{ _('Enter the link to the immage you are commenting on...') }}"

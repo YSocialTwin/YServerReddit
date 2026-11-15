@@ -36,7 +36,7 @@
     <link rel="stylesheet" href="{{ url_for('platform_static_ysocial_server_reddit', filename='css/forum-components.css') }}?v={{ asset_v('@ysocial_server_reddit/css/forum-components.css') }}"/>
     <link rel="stylesheet" href="{{ url_for('platform_static_ysocial_server_reddit', filename='css/forum-reddit.css') }}?v={{ asset_v('@ysocial_server_reddit/css/forum-reddit.css') }}"/>
     <link rel="stylesheet" href="{{ url_for('platform_static_ysocial_server_reddit', filename='css/forum-dark.css') }}?v={{ asset_v('@ysocial_server_reddit/css/forum-dark.css') }}"/>
-    {% include 'shared/platform_ui_gating.html' %}
+    {% set ui_gating_rules = '@ysocial_server_reddit/shared/_ui_gating_rules.html' %}{% include 'shared/platform_ui_gating.html' %}
     <script src="{{ url_for('static', filename='assets/js/i18n.js') }}" data-domains="simulation" defer></script>
 </head>
 <body>
