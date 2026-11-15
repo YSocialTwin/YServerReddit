@@ -233,8 +233,8 @@
                                     </span>
                                 </div>
  <div class="ys-text-xs-meta">
-                                    {% if forum_embedding_settings.service and forum_embedding_settings.model %}
-                                    {{ forum_embedding_settings.service|upper }} · {{ forum_embedding_settings.model }}
+                                    {% if embedding_settings.service and embedding_settings.model %}
+                                    {{ embedding_settings.service|upper }} · {{ embedding_settings.model }}
                                     {% else %}
                                     {{ _('Not configured. Semantic memory falls back to lexical retrieval.') }}
                                     {% endif %}
@@ -1220,7 +1220,7 @@
 {% include "admin/tutorials/exp_details_tutorial.html" %}
 
 <script>
-var YS_DATA_EXP_FORUM = {
+var YS_DATA_EXP_DETAILS = {
     expId: {{ experiment.idexp | tojson }},
     clientId: null
 };

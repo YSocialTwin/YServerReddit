@@ -26,9 +26,9 @@ from y_web.sdk.feeds import (
     parse_required_feed_limit,
     read_feed_with_headers,
 )
-from y_web.sdk.models import ForumImageFeedResource, ForumRssFeedResource, db
+from y_web.sdk.models import ImageFeedResource, RssFeedResource, db
 from y_web.sdk.web import check_privileges
-from y_web.sdk.web import load_feed_experiment_context as _load_forum_experiment_context
+from y_web.sdk.web import load_feed_experiment_context as _load_feed_experiment_context
 from y_web.sdk.web import provider_template
 
 from ..forum.avatars import (  # noqa: E402
@@ -202,8 +202,8 @@ def forum_rss_resources():
     """Manage reusable RSS feed resources for forum simulations."""
     check_privileges(current_user.username)
     resources = db.session.scalars(
-        select(ForumRssFeedResource).order_by(
-            ForumRssFeedResource.name.asc(), ForumRssFeedResource.id.asc()
+        select(RssFeedResource).order_by(
+            RssFeedResource.name.asc(), RssFeedResource.id.asc()
         )
     ).all()
     return render_template(
@@ -245,10 +245,10 @@ def create_forum_rss_resource():
         return redirect("/admin/forum_rss_resources")
 
     existing = db.session.scalars(
-        select(ForumRssFeedResource).filter_by(feed_url=normalized["feed_url"])
+        select(RssFeedResource).filter_by(feed_url=normalized["feed_url"])
     ).first()
     if existing is None:
-        existing = ForumRssFeedResource(feed_url=normalized["feed_url"])
+        existing = RssFeedResource(feed_url=normalized["feed_url"])
         db.session.add(existing)
 
     existing.name = normalized["name"]
@@ -267,7 +267,7 @@ def create_forum_rss_resource():
 def delete_forum_rss_resource(resource_id):
     """Delete a reusable forum RSS resource."""
     check_privileges(current_user.username)
-    resource = db.session.get(ForumRssFeedResource, resource_id)
+    resource = db.session.get(RssFeedResource, resource_id)
     if resource is None:
         flash(_("RSS feed resource not found."), "error")
         return redirect("/admin/forum_rss_resources")
@@ -282,13 +282,13 @@ def delete_forum_rss_resource(resource_id):
 @login_required
 def image_feeds(uid):
     """Display and assign reusable forum image feeds to an experiment."""
-    experiment, experiment_dir, error_response = _load_forum_experiment_context(uid)
+    experiment, experiment_dir, error_response = _load_feed_experiment_context(uid)
     if error_response is not None:
         return error_response
 
     available_image_resources = db.session.scalars(
-        select(ForumImageFeedResource).order_by(
-            ForumImageFeedResource.subreddit.asc(), ForumImageFeedResource.id.asc()
+        select(ImageFeedResource).order_by(
+            ImageFeedResource.subreddit.asc(), ImageFeedResource.id.asc()
         )
     ).all()
     selected_image_resource_ids = _selected_image_resource_ids(
@@ -310,7 +310,7 @@ def image_feeds(uid):
 @login_required
 def update_image_feeds(uid):
     """Persist assigned reusable forum image feeds."""
-    experiment, experiment_dir, error_response = _load_forum_experiment_context(uid)
+    experiment, experiment_dir, error_response = _load_feed_experiment_context(uid)
     if error_response is not None:
         return error_response
 
@@ -323,8 +323,8 @@ def update_image_feeds(uid):
 
     resources = (
         db.session.scalars(
-            select(ForumImageFeedResource).filter(
-                ForumImageFeedResource.id.in_(selected_ids)
+            select(ImageFeedResource).filter(
+                ImageFeedResource.id.in_(selected_ids)
             )
         ).all()
         if selected_ids
@@ -357,7 +357,7 @@ def update_image_feeds(uid):
 @login_required
 def upload_image_feeds(uid):
     """Bulk upload image feeds from JSON."""
-    experiment, experiment_dir, error_response = _load_forum_experiment_context(uid)
+    experiment, experiment_dir, error_response = _load_feed_experiment_context(uid)
     if error_response is not None:
         return error_response
 
@@ -429,8 +429,8 @@ def forum_image_resources():
     """Manage reusable image feed resources for forum simulations."""
     check_privileges(current_user.username)
     resources = db.session.scalars(
-        select(ForumImageFeedResource).order_by(
-            ForumImageFeedResource.subreddit.asc(), ForumImageFeedResource.id.asc()
+        select(ImageFeedResource).order_by(
+            ImageFeedResource.subreddit.asc(), ImageFeedResource.id.asc()
         )
     ).all()
     return render_template(
@@ -488,10 +488,10 @@ def create_forum_image_resource():
         return redirect("/admin/forum_image_resources")
 
     existing = db.session.scalars(
-        select(ForumImageFeedResource).filter_by(subreddit=normalized["subreddit"])
+        select(ImageFeedResource).filter_by(subreddit=normalized["subreddit"])
     ).first()
     if existing is None:
-        existing = ForumImageFeedResource(subreddit=normalized["subreddit"])
+        existing = ImageFeedResource(subreddit=normalized["subreddit"])
         db.session.add(existing)
 
     existing.interests = json.dumps(normalized["interests"])
@@ -508,7 +508,7 @@ def create_forum_image_resource():
 def delete_forum_image_resource(resource_id):
     """Delete a reusable forum image feed resource."""
     check_privileges(current_user.username)
-    resource = db.session.get(ForumImageFeedResource, resource_id)
+    resource = db.session.get(ImageFeedResource, resource_id)
     if resource is None:
         flash(_("Image feed resource not found."), "error")
         return redirect("/admin/forum_image_resources")
@@ -566,7 +566,7 @@ def parse_image_feed():
 @login_required
 def update_forum_avatar_mode(uid):
     """Persist forum avatar mode to config_server.json."""
-    experiment, experiment_dir, error_response = _load_forum_experiment_context(uid)
+    experiment, experiment_dir, error_response = _load_feed_experiment_context(uid)
     if error_response is not None:
         return error_response
 
@@ -608,7 +608,7 @@ def update_forum_avatar_mode(uid):
 @login_required
 def feed_limits(uid):
     """Display and edit feed retrieval limits for a forum experiment."""
-    experiment, experiment_dir, error_response = _load_forum_experiment_context(uid)
+    experiment, experiment_dir, error_response = _load_feed_experiment_context(uid)
     if error_response is not None:
         return error_response
 
@@ -634,7 +634,7 @@ def feed_limits(uid):
 @login_required
 def update_feed_limits(uid):
     """Update feed retrieval limits for a forum experiment."""
-    experiment, experiment_dir, error_response = _load_forum_experiment_context(uid)
+    experiment, experiment_dir, error_response = _load_feed_experiment_context(uid)
     if error_response is not None:
         return error_response
 

@@ -314,7 +314,7 @@
                                         <span class="left">{{ _('Enable Memory') }}</span>
  <span class="right ys-w-70">
  <label class="ys-flex-click">
-                                                <input type="checkbox" id="memory_enabled" name="memory_enabled" onchange="toggleForumMemorySettings()" {% if not experiment_memory_enabled %}disabled{% endif %}>
+                                                <input type="checkbox" id="memory_enabled" name="memory_enabled" onchange="toggleMemorySettings()" {% if not experiment_memory_enabled %}disabled{% endif %}>
  <span class="ys-text-brand">{{ _('Enable run-scoped memory') }}</span>
                                             </label>
  <small class="ys-hint-text">
@@ -322,7 +322,7 @@
                                             </small>
                                         </span>
                                     </div>
- <div id="forum_memory_config_fields" class="ys-collapsible-panel">
+ <div id="memory_config_fields" class="ys-collapsible-panel">
                                         <div class="box-line">
                                             <span class="left">{{ _('Semantic Retrieval') }}</span>
  <span class="right ys-w-70">
@@ -408,7 +408,7 @@
                                         <div class="box-line">
                                             <span class="left">{{ _('Show Advanced Parameters') }}</span>
  <span class="right ys-w-70">
-                                                <input type="checkbox" id="show_memory_advanced_params" onchange="toggleForumMemoryAdvancedParams()">
+                                                <input type="checkbox" id="show_memory_advanced_params" onchange="toggleMemoryAdvancedParams()">
                                             </span>
                                         </div>
  <div id="memory_advanced_params_fields" class="ys-collapsible-panel">

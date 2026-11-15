@@ -110,10 +110,10 @@ class ForumStandard(PlatformProvider):
     def agent_resource_cards(self) -> list:
         from sqlalchemy import func, select
         from y_web import db
-        from y_web.src.models import ForumImageFeedResource
+        from y_web.src.models import ImageFeedResource
 
         count = db.session.scalar(
-            select(func.count()).select_from(ForumImageFeedResource)
+            select(func.count()).select_from(ImageFeedResource)
         )
         return [
             {
