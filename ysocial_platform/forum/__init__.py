@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from y_web.sdk.commons.hot_rank import (  # noqa: F401
+from .hot_rank import (  # noqa: F401
     RankedPost,
     base_hot_score,
     longtail_boost,
     rank_posts_longtail,
     stable_uniform_0_1,
 )
-from y_web.sdk.commons.service import (  # noqa: F401
+from .service import (  # noqa: F401
     build_user_feed_posts,
     fetch_feed_page,
     fetch_thread,

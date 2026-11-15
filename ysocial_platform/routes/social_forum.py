@@ -25,7 +25,7 @@ from ..recsys import RECSYS, get_suggested_users
 main = routes.blueprint("main")
 from y_web.sdk.commons.ids import opaque_id
 from y_web.sdk.commons.ordering import seq_or_id
-from y_web.sdk.commons.service import (
+from ..forum.service import (
     _format_display_time,
     _format_display_time_from_created_at,
     fetch_available_communities,

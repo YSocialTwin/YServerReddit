@@ -10,9 +10,9 @@ from flask import redirect, render_template, url_for
 from flask_login import current_user
 
 from y_web.sdk import social, template_name
-from y_web.sdk.commons import service
 
 from .forum import avatars
+from .forum import service
 
 
 def render_profile(provider, exp, context):

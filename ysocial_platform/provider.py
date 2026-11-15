@@ -53,9 +53,9 @@ class ForumStandard(PlatformProvider):
         return self.library("avatars").profile_pic_of(user)
 
     def discussion_community(self, article, topics):
-        from y_web.sdk import social
-
-        return social.primary_community(article, topics)
+        return self.library("service.queries")._primary_community_payload(
+            article, topics
+        )
 
     def render_profile(self, exp, context):
         return self._profile().render_profile(self, exp, context)
@@ -163,7 +163,9 @@ class ForumStandard(PlatformProvider):
         return f"/{exp_id}/rfeed/{user_id}/feed/rf/1"
 
     slug_username_fallback = "forum_user"
-    threaded_posts = True
+    @property
+    def threads(self):
+        return self.library("threads")
 
     def feed_home_url(self, exp_id: int) -> Optional[str]:
         return f"/{exp_id}/rfeed/all/feed/rf/1?feed_type=new"

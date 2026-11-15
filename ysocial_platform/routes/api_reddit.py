@@ -29,7 +29,7 @@ try:
 except Exception:
     UrlSummarizer = None
 from sqlalchemy import delete, func, select
-from y_web.sdk.commons.service import (
+from ..forum.service import (
     _format_display_time,
     _format_display_time_from_created_at,
     _get_profile_pic,
@@ -1307,7 +1307,7 @@ def api_post(exp_id: int):
 @login_required
 def api_crosspost_targets(exp_id: int):
     """Destinations offered by the Repost dialog: the user's profile plus communities (filtered by ``q``)."""
-    from y_web.sdk.commons.service import (
+    from ..forum.service import (
         fetch_available_communities,
         fetch_community_stats,
         fetch_user_communities,
