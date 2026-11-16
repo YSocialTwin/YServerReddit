@@ -85,6 +85,9 @@ def _normalize_sidebar_slug(value: str) -> str:
     match = re.search(r"(?:^|/)r/([a-z0-9_]+)", raw)
     if match:
         return match.group(1)
+    if "://" in raw:
+        # a web address that names no subreddit (a news site's feed or article) is not a community
+        return ""
     raw = raw.removeprefix("y/").removeprefix("r/").strip("/")
     raw = re.sub(r"[^a-z0-9_/-]+", "-", raw)
     raw = raw.strip("-_/")
