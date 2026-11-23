@@ -24,10 +24,13 @@ from y_web.sdk import (
 )
 from y_web.sdk import gettext as _
 from y_web.sdk import services, web
+from .scenario_design import build_driver
 
 
 class ForumStandard(PlatformProvider):
     key = "forum"
+    #: Scenario Design plugin: the driver that serves this platform (None when the plugin is absent)
+    scenario_design_driver = staticmethod(build_driver)
     #: texts of the plugin catalogue / repository metadata that the core translation catalogue carries
     catalog_texts = (
         N_("Legacy forum simulator on Flask (threads and replies). Server and client are installed and updated independently from its page."),
