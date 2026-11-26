@@ -2,7 +2,7 @@
   "platform": {
     "key": "forum",
     "id": "ysocial_server_reddit",
-    "api_version": "1.3",
+    "api_version": "1.4",
     "provider": "ysocial_platform.provider:ForumStandard"
   }
 }
