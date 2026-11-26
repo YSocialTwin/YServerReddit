@@ -51,6 +51,7 @@ from y_web.sdk.web import (
 from y_web.sdk.web import (
     opinion_dynamics_enabled_for_client_creation as _opinion_dynamics_enabled_for_client_creation,
 )
+from y_web.sdk.web import log_telemetry_event
 from y_web.sdk.web import provider_of as _provider_of
 from y_web.sdk.web import redirect_to_clients_page as _redirect_to_clients_page
 
@@ -1373,10 +1374,8 @@ def _create_forum_client_internal():
                 client.network_type = network_model
                 db.session.commit()
 
-    from y_web.src.telemetry import Telemetry
-
-    telemetry = Telemetry(user=current_user)
-    telemetry.log_event(
+    log_telemetry_event(
+        current_user,
         data={
             "action": "create_client",
             "data": {
