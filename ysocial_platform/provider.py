@@ -142,7 +142,7 @@ class ForumStandard(PlatformProvider):
                     _("The same subreddit definition can be reused safely"),
                 ],
                 "cta_label": _("Manage Image Resources"),
-                "cta_href": "/admin/forum_image_resources",
+                "cta_href": "/admin/image_resources",
                 "secondary_label": _(
                     "Maintain the canonical image-feed catalog here and assign only the feeds needed by each forum simulation."
                 ),
