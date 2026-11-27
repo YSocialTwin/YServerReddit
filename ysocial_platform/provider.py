@@ -64,6 +64,10 @@ class ForumStandard(PlatformProvider):
         "avoid unrelated politics/history unless the thread explicitly calls for it"
     )
 
+    def tutorial_scripts(self) -> tuple:
+        """Guided-tour steps of the admin pages of this platform (``PLATFORM_API`` 1.6)."""
+        return ("js/tutorials.js",)
+
     def profile_picture_in(self, user, exp_id):
         return self.library("avatars").resolve_forum_profile_pic(user, exp_id)
 
