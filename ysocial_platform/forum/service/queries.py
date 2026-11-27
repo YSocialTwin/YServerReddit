@@ -37,7 +37,7 @@ from .formatters import (
 from y_web.sdk.text_utils import (
     augment_text,
     normalize_punctuation_spacing,
-    process_reddit_post,
+    split_title_and_body,
     strip_reproduced_article_content,
 )
 from y_web.sdk.data_access import get_elicited_emotions, get_topics
@@ -700,7 +700,7 @@ def _build_comment_payload(
         ).first()
         profile_pic = _get_profile_pic(author) if author else ""
 
-        title, body = process_reddit_post(
+        title, body = split_title_and_body(
             comment.tweet, allow_legacy_blankline_title=False
         )
         if _is_agent_or_page_author(author):
@@ -783,7 +783,7 @@ def _create_feed_post(
     comment_count = comment_map.get(post.thread_id or post.id, 0)
     share_count = share_map.get(post.id, 0)
 
-    title, body = process_reddit_post(post.tweet)
+    title, body = split_title_and_body(post.tweet)
 
     article_row = (
         db.session.scalars(select(Articles).filter_by(id=post.news_id)).first()
@@ -1231,7 +1231,7 @@ def _post_with_aggregates(
         post_created_at
     ) or _format_display_time(day, hour)
 
-    title, body = process_reddit_post(post.tweet)
+    title, body = split_title_and_body(post.tweet)
     article_row = (
         db.session.scalars(select(Articles).filter_by(id=post.news_id)).first()
         if post.news_id

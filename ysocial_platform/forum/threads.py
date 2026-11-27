@@ -1,7 +1,7 @@
 """How the forum shows its threads in the pages the core builds (``provider.threads``): titled, timed posts of a
 community."""
 
-from y_web.sdk.text_utils import process_reddit_post
+from y_web.sdk.text_utils import split_title_and_body
 
 from .service import _format_display_time, _format_display_time_from_created_at, _resolve_article
 from .service.queries import _build_root_post_community_map, _primary_community_payload
@@ -24,7 +24,7 @@ def community(article_preview, topics):
 
 def split_title(text):
     """``(title, body)`` of a post written as a title and a body."""
-    return process_reddit_post(text)
+    return split_title_and_body(text)
 
 
 def origin_community(source_id) -> str:

@@ -35,7 +35,7 @@ from ..forum.service import (
     fetch_recent_active_communities,
     fetch_user_communities,
 )
-from y_web.sdk.content import process_reddit_post, strip_tags
+from y_web.sdk.content import split_title_and_body, strip_tags
 from y_web.sdk.models import (
     Admin_users,
     Agent,
@@ -250,7 +250,7 @@ def get_thread_reddit(exp_id, post_id):
     user = db.session.scalars(select(User_mgmt).filter_by(id=root_post.user_id)).first()
     root_profile_pic = _forum_profile_pic(user)
 
-    title, content = process_reddit_post(root_post.tweet)
+    title, content = split_title_and_body(root_post.tweet)
     processed_content = augment_text(content, exp_id) if content else ""
 
     article = db.session.scalars(
@@ -357,7 +357,7 @@ def get_thread_reddit(exp_id, post_id):
         user = db.session.scalars(select(User_mgmt).filter_by(id=post.user_id)).first()
         profile_pic = _forum_profile_pic(user)
 
-        comment_title, comment_content = process_reddit_post(post.tweet)
+        comment_title, comment_content = split_title_and_body(post.tweet)
         processed_comment = (
             augment_text(comment_content, exp_id) if comment_content else ""
         )
