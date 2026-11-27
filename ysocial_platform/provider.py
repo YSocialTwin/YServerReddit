@@ -265,6 +265,10 @@ class ForumStandard(PlatformProvider):
         client_repo="YClientReddit",
         fake_agent_module="y_client.classes.fake_base_agent",
         client_takes_log_file=True,
+        server_script="y_server_run.py",
+        server_app_module="y_server",
+        client_class_path="y_client.clients:YClientWeb",
+        client_federation_module="y_client.federation",
     )
 
     def experiment_prompt_pack(self, simulator_type: str) -> Tuple[str, str]:
