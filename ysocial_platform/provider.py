@@ -10,6 +10,7 @@ startup. It talks to the core through ``y_web.sdk`` only; the pages of the platf
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 from typing import Any, Mapping, Optional, Tuple
 
 from y_web.sdk import (
@@ -63,6 +64,11 @@ class ForumStandard(PlatformProvider):
         "casual fun subreddit; stay on-topic; short replies; "
         "avoid unrelated politics/history unless the thread explicitly calls for it"
     )
+
+    def prompt_pack_roots(self) -> tuple:
+        """Folders with the platform's own prompts (``PLATFORM_API`` 1.6)."""
+        folder = getattr(self, "package_dir", None)
+        return (Path(folder) / "prompts",) if folder else ()
 
     def tutorial_scripts(self) -> tuple:
         """Guided-tour steps of the admin pages of this platform (``PLATFORM_API`` 1.6)."""
