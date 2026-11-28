@@ -1,0 +1,7 @@
+{# selectors this frontend hides when a switch of /admin/frontend_settings is off #}
+  {% if not ui.interaction_like %}{% set _ = rules.append('.vote-button[data-action="like"]') %}{% endif %}
+  {% if not ui.interaction_dislike %}{% set _ = rules.append('.vote-button[data-action="dislike"]') %}{% endif %}
+  {% if not ui.interaction_comment %}{% set _ = rules.append('.toggle-reply-button, .reply.text-end, form.comment_form, .reply_comment') %}{% endif %}
+  {% if not ui.interaction_post %}{% set _ = rules.append('#create-post-trigger, #compose-card') %}{% endif %}
+  {% if not ui.show_post_time %}{% set _ = rules.append('.forum-post-time') %}{% endif %}
+  {% if not ui.notifications_menu %}{% set _ = rules.append('a.reply-notif-bell, .navbar-item[href*="rnotifications"]') %}{% endif %}

@@ -1,0 +1,9 @@
+{# layout of the World Simulation "Also on" list in this frontend #}
+<div class="forum-profile-card ws-also ws-also--forum" data-ws-profile-badges role="group" aria-label="{{ _('Also on') }}">
+  <h3>{{ _('Also on') }}</h3>
+  <div class="forum-profile-about">
+    {% for b in ws_badges %}
+    <div class="forum-profile-about-row"><span>{{ ws_chip(b, 'ws-also-chip', false) }}</span><span class="ws-also-aside">{% if b.handle %}@{{ b.handle }}{% endif %}{% if b.handle and not b.active %} · {% endif %}{% if not b.active %}{{ ws_state(b) }}{% endif %}{% if not b.handle and b.active %}{{ _('Active') }}{% endif %}</span></div>
+    {% endfor %}
+  </div>
+</div>
